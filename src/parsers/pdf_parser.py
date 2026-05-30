@@ -18,9 +18,8 @@ class PDFParser(BaseParser):
 
         doc = Document(file_path=file_path, file_type="pdf")
 
+        pdf_document = fitz.open(file_path)
         try:
-            pdf_document = fitz.open(file_path)
-
             metadata = pdf_document.metadata
             if metadata:
                 doc.title = metadata.get("title")
@@ -41,10 +40,10 @@ class PDFParser(BaseParser):
                 )
                 doc.add_page(page_model)
 
-            pdf_document.close()
-
         except Exception as e:
             raise ValueError(f"PDF 解析错误: {str(e)}")
+        finally:
+            pdf_document.close()
 
         return doc
 
