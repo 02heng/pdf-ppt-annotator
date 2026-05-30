@@ -26,6 +26,7 @@ class SidebarPanel(ctk.CTkFrame):
             placeholder_text="搜索批注..."
         )
         self.search_entry.pack(fill="x", padx=10, pady=5)
+        self.search_entry.bind("<KeyRelease>", lambda e: self._on_search())
         
         # 批注列表
         self.scroll_frame = ctk.CTkScrollableFrame(self)
