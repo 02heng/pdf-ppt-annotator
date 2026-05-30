@@ -1,0 +1,27 @@
+# config/default.yaml
+llm:
+  provider: "openai"
+  openai:
+    api_key: ""
+    model: "gpt-4o"
+    temperature: 0.3
+    max_tokens: 4096
+  ollama:
+    base_url: "http://localhost:11434"
+    model: "llama3:70b"
+    temperature: 0.3
+
+annotation:
+  mode: "sidebar"
+  detail_level: "detailed"
+  style:
+    font_family: "Microsoft YaHei"
+    font_size: 12
+    color: "#333333"
+    background: "#FFFFCC"
+
+app:
+  language: "zh-CN"
+  theme: "system"
+  recent_files_limit: 10
+  auto_save: true
