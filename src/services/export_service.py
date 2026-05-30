@@ -1,7 +1,4 @@
-import os
-from typing import Optional
 from src.models.document import Document
-from src.models.annotation import Annotation
 
 class ExportService:
     """导出服务"""
@@ -45,20 +42,13 @@ class ExportService:
             return output_path
             
         except Exception as e:
-            raise ValueError(f"导出失败: {str(e)}")
+            raise ValueError(f"导出失败: {str(e)}") from e
     
     def _add_overlay_annotations(self, page, annotations: list) -> None:
         """添加覆盖式批注"""
         import fitz
         
         for ann in annotations:
-            rect = fitz.Rect(
-                ann.position_x,
-                ann.position_y,
-                ann.position_x + ann.width,
-                ann.position_y + ann.height
-            )
-            
             annot = page.add_text_annot(
                 fitz.Point(ann.position_x, ann.position_y),
                 ann.content
@@ -124,15 +114,3 @@ class ExportService:
                 f.write("---\n\n")
         
         return output_path
-    
-    def _get_output_path(
-        self,
-        original_path: str,
-        suffix: str = "_annotated"
-    ) -> str:
-        """生成输出路径"""
-        directory = os.path.dirname(original_path)
-        filename = os.path.basename(original_path)
-        name, ext = os.path.splitext(filename)
-        
-        return os.path.join(directory, f"{name}{suffix}{ext}")
