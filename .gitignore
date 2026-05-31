@@ -7,4 +7,3 @@ build/
 *.egg
 *.egg-info/
 .env
-config/default.yaml
