@@ -11,7 +11,7 @@ class LLMService:
         self.provider = config.provider
         self._llm: Optional[LLM] = None
 
-        if self.provider not in ["openai", "ollama"]:
+        if self.provider not in ["openai", "ollama", "deepseek"]:
             raise ValueError(f"不支持的 LLM 提供商: {self.provider}")
 
     @property
@@ -25,6 +25,8 @@ class LLMService:
             return self._create_openai_llm()
         elif self.provider == "ollama":
             return self._create_ollama_llm()
+        elif self.provider == "deepseek":
+            return self._create_deepseek_llm()
         else:
             raise ValueError(f"不支持的提供商: {self.provider}")
 
@@ -45,8 +47,18 @@ class LLMService:
             temperature=config.temperature
         )
 
+    def _create_deepseek_llm(self) -> LLM:
+        config = self.config.deepseek
+        return LLM(
+            model=f"deepseek/{config.model}",
+            temperature=config.temperature,
+            max_tokens=config.max_tokens,
+            api_key=config.api_key,
+            base_url=config.base_url
+        )
+
     def switch_provider(self, provider: str) -> None:
-        if provider not in ["openai", "ollama"]:
+        if provider not in ["openai", "ollama", "deepseek"]:
             raise ValueError(f"不支持的提供商: {provider}")
         self.provider = provider
         self._llm = None

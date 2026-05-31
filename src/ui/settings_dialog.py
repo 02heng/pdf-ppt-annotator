@@ -66,8 +66,9 @@ class SettingsDialog(ctk.CTkToplevel):
         self.provider_var = ctk.StringVar(value=self.settings.llm.provider)
         self.provider_segment = ctk.CTkSegmentedButton(
             self.llm_tab,
-            values=["openai", "ollama"],
-            variable=self.provider_var
+            values=["openai", "ollama", "deepseek"],
+            variable=self.provider_var,
+            command=self._on_provider_change
         )
         self.provider_segment.pack(fill="x", padx=10, pady=5)
         
@@ -98,6 +99,28 @@ class SettingsDialog(ctk.CTkToplevel):
         self.ollama_model_entry = ctk.CTkEntry(self.ollama_frame)
         self.ollama_model_entry.pack(fill="x", padx=5, pady=2)
         self.ollama_model_entry.insert(0, self.settings.llm.ollama.model)
+        
+        # DeepSeek 设置
+        self.deepseek_frame = ctk.CTkFrame(self.llm_tab)
+        self.deepseek_frame.pack(fill="x", padx=10, pady=5)
+        
+        ctk.CTkLabel(self.deepseek_frame, text="API Key:").pack(anchor="w", padx=5, pady=2)
+        self.deepseek_api_key_entry = ctk.CTkEntry(self.deepseek_frame, show="*")
+        self.deepseek_api_key_entry.pack(fill="x", padx=5, pady=2)
+        self.deepseek_api_key_entry.insert(0, self.settings.llm.deepseek.api_key)
+        
+        ctk.CTkLabel(self.deepseek_frame, text="模型:").pack(anchor="w", padx=5, pady=2)
+        self.deepseek_model_entry = ctk.CTkEntry(self.deepseek_frame)
+        self.deepseek_model_entry.pack(fill="x", padx=5, pady=2)
+        self.deepseek_model_entry.insert(0, self.settings.llm.deepseek.model)
+        
+        ctk.CTkLabel(self.deepseek_frame, text="Base URL:").pack(anchor="w", padx=5, pady=2)
+        self.deepseek_base_url_entry = ctk.CTkEntry(self.deepseek_frame)
+        self.deepseek_base_url_entry.pack(fill="x", padx=5, pady=2)
+        self.deepseek_base_url_entry.insert(0, self.settings.llm.deepseek.base_url)
+        
+        # 初始化显示状态
+        self._on_provider_change(self.settings.llm.provider)
     
     def _create_annotation_settings(self) -> None:
         """创建批注设置"""
@@ -151,6 +174,21 @@ class SettingsDialog(ctk.CTkToplevel):
         )
         self.language_segment.pack(fill="x", padx=10, pady=5)
     
+    def _on_provider_change(self, value: str) -> None:
+        """切换提供商时显示对应的设置框架"""
+        # 隐藏所有框架
+        self.openai_frame.pack_forget()
+        self.ollama_frame.pack_forget()
+        self.deepseek_frame.pack_forget()
+        
+        # 显示选中的框架
+        if value == "openai":
+            self.openai_frame.pack(fill="x", padx=10, pady=5)
+        elif value == "ollama":
+            self.ollama_frame.pack(fill="x", padx=10, pady=5)
+        elif value == "deepseek":
+            self.deepseek_frame.pack(fill="x", padx=10, pady=5)
+    
     def _on_save(self) -> None:
         """保存设置"""
         self.settings.llm.provider = self.provider_var.get()
@@ -158,6 +196,9 @@ class SettingsDialog(ctk.CTkToplevel):
         self.settings.llm.openai.model = self.model_entry.get()
         self.settings.llm.ollama.base_url = self.base_url_entry.get()
         self.settings.llm.ollama.model = self.ollama_model_entry.get()
+        self.settings.llm.deepseek.api_key = self.deepseek_api_key_entry.get()
+        self.settings.llm.deepseek.model = self.deepseek_model_entry.get()
+        self.settings.llm.deepseek.base_url = self.deepseek_base_url_entry.get()
         self.settings.annotation.mode = self.mode_var.get()
         self.settings.annotation.detail_level = self.detail_var.get()
         self.settings.app.theme = self.theme_var.get()

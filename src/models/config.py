@@ -14,11 +14,20 @@ class OllamaConfig(BaseModel):
     model: str = "llama3:70b"
     temperature: float = 0.3
 
+class DeepSeekConfig(BaseModel):
+    """DeepSeek 配置"""
+    api_key: str = ""
+    model: str = "deepseek-chat"
+    temperature: float = 0.3
+    max_tokens: int = 4096
+    base_url: str = "https://api.deepseek.com"
+
 class LLMConfig(BaseModel):
     """LLM 配置"""
-    provider: str = "openai"  # "openai" 或 "ollama"
+    provider: str = "openai"  # "openai", "ollama" 或 "deepseek"
     openai: OpenAIConfig = Field(default_factory=OpenAIConfig)
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
+    deepseek: DeepSeekConfig = Field(default_factory=DeepSeekConfig)
 
 class AnnotationStyle(BaseModel):
     """批注样式配置"""

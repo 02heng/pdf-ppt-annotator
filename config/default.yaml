@@ -1,27 +1,30 @@
-# config/default.yaml
-llm:
-  provider: "openai"
-  openai:
-    api_key: ""
-    model: "gpt-4o"
-    temperature: 0.3
-    max_tokens: 4096
-  ollama:
-    base_url: "http://localhost:11434"
-    model: "llama3:70b"
-    temperature: 0.3
-
 annotation:
-  mode: "sidebar"
-  detail_level: "detailed"
+  detail_level: detailed
+  mode: sidebar
   style:
-    font_family: "Microsoft YaHei"
+    background: '#FFFFCC'
+    color: '#333333'
+    font_family: Microsoft YaHei
     font_size: 12
-    color: "#333333"
-    background: "#FFFFCC"
-
 app:
-  language: "zh-CN"
-  theme: "system"
-  recent_files_limit: 10
   auto_save: true
+  language: zh-CN
+  recent_files_limit: 10
+  theme: system
+llm:
+  deepseek:
+    api_key: sk-f3c7860355b2436dbd3f043d04a39df8
+    base_url: https://api.deepseek.com
+    max_tokens: 4096
+    model: deepseek-chat
+    temperature: 0.3
+  ollama:
+    base_url: http://localhost:11434
+    model: llama3:70b
+    temperature: 0.3
+  openai:
+    api_key: ''
+    max_tokens: 4096
+    model: gpt-4o
+    temperature: 0.3
+  provider: deepseek
