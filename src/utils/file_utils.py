@@ -40,3 +40,10 @@ def validate_file(file_path: str) -> Tuple[bool, str]:
     if not is_supported_file(file_path):
         return False, "不支持的文件格式"
     return True, ""
+
+
+def file_key(path: str) -> str:
+    """文件唯一键（用于批注分组，避免路径格式差异）"""
+    if not path:
+        return ""
+    return os.path.normcase(os.path.normpath(os.path.abspath(path)))

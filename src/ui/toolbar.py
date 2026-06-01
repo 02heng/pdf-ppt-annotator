@@ -121,18 +121,39 @@ class Toolbar(ctk.CTkFrame):
         )
 
         if files:
-            # 存储选中的文件
-            self.app.selected_files = list(files)
+            self.app._persist_current_file_annotations()
+            existing = list(self.app.selected_files)
+            existing_norm = {os.path.normpath(p) for p in existing}
+            added: list[str] = []
 
-            # 更新文件列表显示
-            self.app.update_file_list(list(files))
+            for f in files:
+                norm = os.path.normpath(f)
+                if norm not in existing_norm:
+                    added.append(f)
+                    existing.append(f)
+                    existing_norm.add(norm)
 
-            # 更新状态栏
-            file_names = [f.split("/")[-1].split("\\")[-1] for f in files]
+            if not existing:
+                existing = list(files)
+                added = list(files)
+
+            self.app.selected_files = existing
+            self.app.update_file_list(existing)
+
+            select_path = added[-1] if added else files[0]
+            select_norm = os.path.normpath(select_path)
+            for idx, path in enumerate(existing):
+                if os.path.normpath(path) == select_norm:
+                    self.app._on_file_select(idx)
+                    break
+
+            file_names = [os.path.basename(f) for f in (added if added else files)]
             if len(file_names) == 1:
                 self.app.update_status(f"导入成功: {file_names[0]}")
+            elif added:
+                self.app.update_status(f"新增 {len(added)} 个文件，共 {len(existing)} 个")
             else:
-                self.app.update_status(f"导入成功: 共 {len(files)} 个文件")
+                self.app.update_status(f"文件已在列表中，共 {len(existing)} 个")
             self.app.sync_web_preview()
 
     def _on_open_project(self) -> None:
@@ -209,7 +230,7 @@ class Toolbar(ctk.CTkFrame):
             return False
 
         if not self.app.pdf_doc:
-            messagebox.showwarning("警告", "请先导入PDF文件")
+            messagebox.showwarning("警告", "请先导入 PDF 或 PPT 文件")
             return False
 
         return True
@@ -219,27 +240,46 @@ class Toolbar(ctk.CTkFrame):
         self.annotate_btn.configure(state=state)
         self.annotate_all_btn.configure(state=state)
 
-    def _apply_annotations_to_page(self, page_num: int, annotations) -> int:
-        """将 AI 批注写入指定页"""
+    def _apply_annotations_to_page(
+        self,
+        page_num: int,
+        annotations,
+        *,
+        replace: bool = False,
+    ) -> int:
+        """将 AI 批注写入指定页（坐标为 PDF 页坐标）"""
         from src.ui.app import AnnotationMarker
 
         page = self.app.pdf_doc[page_num]
-        existing_markers = self.app.annotations.get(page_num, [])
-        scale = self.app.zoom_level * 2
-        page_width = page.rect.width
+        page_w = page.rect.width
+        page_h = page.rect.height
+        marker_size = AnnotationMarker.MARKER_SIZE
+
+        if replace:
+            existing_markers = []
+        else:
+            existing_markers = list(self.app.annotations.get(page_num, []))
 
         for i, ann in enumerate(annotations):
-            x = (page_width - 170) * scale
-            y = (20 + (len(existing_markers) + i) * 75) * scale
+            x = float(getattr(ann, "position_x", 0) or 0)
+            y = float(getattr(ann, "position_y", 0) or 0)
+            if x <= 0:
+                x = max(page_w - marker_size - 12, 12)
+            if y <= 0:
+                y = 24 + (len(existing_markers) + i) * (marker_size + 10)
+            x = max(0, min(x, page_w - marker_size))
+            y = max(0, min(y, page_h - marker_size))
+
             marker = AnnotationMarker(
-                x=x,
-                y=y,
+                x=int(x),
+                y=int(y),
                 text=ann.content,
                 color="#FF6B6B",
             )
             existing_markers.append(marker)
 
         self.app.annotations[page_num] = existing_markers
+        self.app._persist_current_file_annotations()
         return len(annotations)
 
     def _on_annotate(self) -> None:
@@ -264,18 +304,28 @@ class Toolbar(ctk.CTkFrame):
                 from src.models.page import Page
 
                 annotation_service = AnnotationService(self.app.settings.llm)
+                source_path = self.app.selected_files[self.app.current_file_index]
+                pdf_path = self.app.get_render_pdf_path(source_path)
                 page = self.app.pdf_doc[current_page]
+                from src.utils.page_image import extract_page_text_for_annotation
+                from src.models.page import Page
+
+                page_text = extract_page_text_for_annotation(
+                    current_page,
+                    pdf_doc=self.app.pdf_doc,
+                    source_path=source_path,
+                )
                 page_obj = Page(
                     page_number=current_page,
-                    content=page.get_text(),
+                    content=page_text,
                     width=page.rect.width,
                     height=page.rect.height,
                 )
-                pdf_path = self.app.selected_files[self.app.current_file_index]
                 annotations = annotation_service.process_page(
                     page_obj,
                     pdf_path=pdf_path,
                     pdf_doc=self.app.pdf_doc,
+                    source_path=source_path,
                 )
 
                 def finish():
@@ -326,14 +376,22 @@ class Toolbar(ctk.CTkFrame):
                 from src.models.page import Page
 
                 annotation_service = AnnotationService(self.app.settings.llm)
-                pdf_path = self.app.selected_files[self.app.current_file_index]
+                source_path = self.app.selected_files[self.app.current_file_index]
+                pdf_path = self.app.get_render_pdf_path(source_path)
+                from src.utils.page_image import extract_page_text_for_annotation
+
                 page_results = []
 
                 for page_num in range(total):
                     page = self.app.pdf_doc[page_num]
+                    page_text = extract_page_text_for_annotation(
+                        page_num,
+                        pdf_doc=self.app.pdf_doc,
+                        source_path=source_path,
+                    )
                     page_obj = Page(
                         page_number=page_num,
-                        content=page.get_text(),
+                        content=page_text,
                         width=page.rect.width,
                         height=page.rect.height,
                     )
@@ -351,6 +409,7 @@ class Toolbar(ctk.CTkFrame):
                         page_obj,
                         pdf_path=pdf_path,
                         pdf_doc=self.app.pdf_doc,
+                        source_path=source_path,
                     )
                     if annotations:
                         page_results.append((page_num, annotations))
@@ -360,8 +419,13 @@ class Toolbar(ctk.CTkFrame):
                     self._set_annotate_buttons_state(True)
                     total_ann = 0
                     for page_num, annotations in page_results:
-                        total_ann += self._apply_annotations_to_page(page_num, annotations)
+                        count = self._apply_annotations_to_page(
+                            page_num, annotations, replace=True
+                        )
+                        total_ann += count
                     pages_with_ann = len(page_results)
+                    for page_num in range(total):
+                        self.app._normalize_markers(page_num)
                     self.app.update_progress(total, total, "完成")
                     self.app._show_annotations()
                     self.app._update_annotation_list()
@@ -430,16 +494,19 @@ class Toolbar(ctk.CTkFrame):
             from src.utils.pdf_annotation import draw_page_annotations
 
             self.app._persist_current_file_annotations()
-            doc = fitz.open(self.app.selected_files[self.app.current_file_index])
-            scale = self.app.zoom_level * 2
+            source_file = self.app.selected_files[self.app.current_file_index]
+            render_pdf = self.app.get_render_pdf_path(source_file)
+            doc = fitz.open(render_pdf)
             file_path = self.app.selected_files[self.app.current_file_index]
-            markers_by_page = self.app.annotations_by_file.get(file_path, self.app.annotations)
+            markers_by_page = self.app._get_stored_annotations(file_path)
+            if not markers_by_page:
+                markers_by_page = self.app.annotations
 
             for page_num in range(self.app.total_pages):
                 page = doc[page_num]
                 markers = markers_by_page.get(page_num, [])
                 if markers:
-                    draw_page_annotations(page, markers, scale=scale)
+                    draw_page_annotations(page, markers)
 
             doc.save(output_path)
             doc.close()

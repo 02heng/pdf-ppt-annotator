@@ -293,34 +293,22 @@ def add_hover_sticky_note(
     return ICON_SIZE + 6 + content_height
 
 
-def draw_page_annotations(page: fitz.Page, annotations: list, scale: float = 1.0) -> None:
-    """导出批注（使用界面中的位置）"""
+def draw_page_annotations(page: fitz.Page, annotations: list) -> None:
+    """导出批注（marker.x/y 为 PDF 页坐标）"""
     if not annotations:
         return
-
-    offset_y = 0.0
-    base_x = None
-    base_y = None
 
     for i, item in enumerate(annotations):
         text = item.get("text", "") if isinstance(item, dict) else getattr(item, "text", "")
         color = item.get("color", "#FF6B6B") if isinstance(item, dict) else getattr(item, "color", "#FF6B6B")
 
         if isinstance(item, dict):
-            x = item.get("x", 0) / scale
-            y = item.get("y", 0) / scale
+            x = float(item.get("x", 0))
+            y = float(item.get("y", 0))
         else:
-            x = getattr(item, "x", 0) / scale
-            y = getattr(item, "y", 0) / scale
+            x = float(getattr(item, "x", 0))
+            y = float(getattr(item, "y", 0))
 
-        if i == 0:
-            base_x, base_y = x, y
-        else:
-            x = base_x if base_x is not None else x
-            y = (base_y if base_y is not None else y) + offset_y
-
-        used = add_hover_sticky_note(
+        add_hover_sticky_note(
             page, x=x, y=y, text=text, index=i + 1, color_hex=color
         )
-        if used > 0:
-            offset_y += used + 8

@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
+from src.utils.file_utils import file_key
+
 if TYPE_CHECKING:
     from src.ui.app import App, AnnotationMarker
 
@@ -77,10 +79,16 @@ def _annotations_from_json(data: Dict[str, Dict[str, List[Dict[str, Any]]]]) -> 
 
 def build_snapshot(app: "App") -> Dict[str, Any]:
     app._persist_current_file_annotations()
+    app._rekey_annotations_by_file()
     existing_files = [f for f in app.selected_files if os.path.isfile(f)]
+    existing_keys = {file_key(f) for f in existing_files}
+    # 清理已不在列表中的文件的批注缓存
+    app.annotations_by_file = {
+        k: v for k, v in app.annotations_by_file.items() if k in existing_keys
+    }
     annotations = _annotations_to_json(app.annotations_by_file)
     filtered_annotations = {
-        path: pages for path, pages in annotations.items() if path in existing_files
+        path: pages for path, pages in annotations.items() if path in existing_keys
     }
 
     return {
@@ -96,13 +104,21 @@ def build_snapshot(app: "App") -> Dict[str, Any]:
 
 
 def save_session(app: "App") -> None:
+    """保存会话；无文件时清除会话，避免重启后恢复已移除的文件"""
     if not app.settings.app.auto_save:
         return
-    if not app.selected_files and not app.annotations_by_file:
+
+    session_path = get_session_path()
+
+    if not app.selected_files:
+        if session_path.is_file():
+            try:
+                session_path.unlink()
+            except OSError:
+                pass
         return
 
     snapshot = build_snapshot(app)
-    session_path = get_session_path()
     with open(session_path, "w", encoding="utf-8") as f:
         json.dump(snapshot, f, ensure_ascii=False, indent=2)
 
@@ -137,6 +153,10 @@ def apply_snapshot(app: "App", data: Dict[str, Any], *, project_root: str = "") 
         return False
 
     annotations_data = data.get("annotations_by_file") or {}
+    legacy = data.get("annotations") or {}
+    if not annotations_data and legacy and valid_files:
+        annotations_data = {file_key(valid_files[0]): legacy}
+
     remapped_annotations: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
 
     if project_root:
@@ -144,27 +164,32 @@ def apply_snapshot(app: "App", data: Dict[str, Any], *, project_root: str = "") 
             if os.path.isabs(old_key):
                 name = os.path.basename(old_key)
                 match = next((f for f in valid_files if os.path.basename(f) == name), None)
-                key = match or old_key
+                key = file_key(match or old_key)
             else:
-                key = os.path.normpath(os.path.join(project_root, old_key))
+                key = file_key(os.path.normpath(os.path.join(project_root, old_key)))
             remapped_annotations[key] = pages
         annotations_data = remapped_annotations
     else:
         remapped_annotations = {}
+        valid_keys = {file_key(f): f for f in valid_files}
         for old_key, pages in annotations_data.items():
-            if old_key in valid_files:
-                remapped_annotations[old_key] = pages
+            fk = file_key(old_key)
+            if fk in valid_keys:
+                remapped_annotations[fk] = pages
+            elif old_key in valid_keys:
+                remapped_annotations[file_key(old_key)] = pages
             elif os.path.basename(old_key):
                 match = next(
                     (f for f in valid_files if os.path.basename(f) == os.path.basename(old_key)),
                     None,
                 )
                 if match:
-                    remapped_annotations[match] = pages
+                    remapped_annotations[file_key(match)] = pages
         annotations_data = remapped_annotations
 
     app.selected_files = valid_files
     app.annotations_by_file = _annotations_from_json(annotations_data)
+    app._rekey_annotations_by_file()
 
     index = data.get("current_file_index", 0)
     app.current_file_index = max(0, min(index, len(valid_files) - 1))
@@ -176,7 +201,7 @@ def apply_snapshot(app: "App", data: Dict[str, Any], *, project_root: str = "") 
     app.update_file_list(valid_files)
     app._load_file_content(file_path, page=app.current_page)
     app._restore_file_annotations(file_path)
-    app._render_page()
+    app._show_annotations()
     app._update_annotation_list()
     app.sync_web_preview()
 
@@ -215,11 +240,11 @@ def save_project(app: "App", project_path: str) -> None:
             dest_abs = os.path.join(temp_dir, dest_rel.replace("/", os.sep))
             shutil.copy2(src, dest_abs)
             relative_files.append(dest_rel.replace("\\", "/"))
-            path_map[src] = dest_rel.replace("\\", "/")
+            path_map[file_key(src)] = dest_rel.replace("\\", "/")
 
         remapped: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
-        for abs_path, pages in _annotations_to_json(app.annotations_by_file).items():
-            rel_file = path_map.get(abs_path)
+        for key, pages in _annotations_to_json(app.annotations_by_file).items():
+            rel_file = path_map.get(key)
             if rel_file:
                 remapped[rel_file] = pages
 

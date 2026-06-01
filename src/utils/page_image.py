@@ -1,7 +1,8 @@
-"""PDF 页面转图片工具"""
+"""PDF / PPT 页面转图片工具"""
 import base64
 import io
-from typing import Tuple
+import os
+from typing import Optional, Tuple
 
 import fitz
 from PIL import Image
@@ -69,3 +70,51 @@ def save_page_image_temp(
     with open(output_path, "wb") as f:
         f.write(png_bytes)
     return output_path
+
+
+def render_page_for_annotation(
+    page_number: int,
+    *,
+    pdf_path: str = "",
+    pdf_doc: Optional[fitz.Document] = None,
+    source_path: str = "",
+    dpi: int = 150,
+) -> Tuple[bytes, str, float, float]:
+    """
+    将文档单页渲染为 PNG（PDF 与 PPTX 统一入口，供 AI 视觉分析）
+
+    Returns:
+        (png_bytes, base64_str, page_width_pt, page_height_pt)
+    """
+    original = source_path or pdf_path
+    lower = original.lower()
+
+    if lower.endswith(".pptx") and os.path.isfile(original):
+        from src.utils.pptx_renderer import render_pptx_slide_to_image
+
+        return render_pptx_slide_to_image(original, page_number)
+
+    if pdf_doc is not None:
+        return render_page_from_doc(pdf_doc, page_number, dpi=dpi)
+    if pdf_path:
+        return render_page_to_image(pdf_path, page_number, dpi=dpi)
+
+    raise ValueError("无法渲染页面：缺少有效的 PDF 或 PPTX 路径")
+
+
+def extract_page_text_for_annotation(
+    page_number: int,
+    *,
+    pdf_doc: Optional[fitz.Document] = None,
+    source_path: str = "",
+) -> str:
+    """提取页面文字（PPTX 从 shapes 提取，PDF 从文本层提取）"""
+    if source_path.lower().endswith(".pptx") and os.path.isfile(source_path):
+        from src.utils.pptx_renderer import extract_pptx_slide_text
+
+        return extract_pptx_slide_text(source_path, page_number)
+
+    if pdf_doc is not None and 0 <= page_number < len(pdf_doc):
+        return pdf_doc[page_number].get_text() or ""
+
+    return ""

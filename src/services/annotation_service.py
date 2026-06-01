@@ -64,9 +64,15 @@ class AnnotationService:
 
         return document
 
-    def process_page(self, page: Page, pdf_path: str = "", pdf_doc=None) -> List[Annotation]:
+    def process_page(
+        self,
+        page: Page,
+        pdf_path: str = "",
+        pdf_doc=None,
+        source_path: str = "",
+    ) -> List[Annotation]:
         """处理单个页面（优先使用页面图片视觉分析）"""
-        if pdf_path or pdf_doc is not None:
+        if pdf_path or pdf_doc is not None or source_path:
             from src.services.vision_annotation_service import VisionAnnotationService
 
             vision_service = VisionAnnotationService(self.crew_service.llm_service.config)
@@ -74,6 +80,7 @@ class AnnotationService:
                 pdf_path=pdf_path,
                 page_number=page.page_number,
                 pdf_doc=pdf_doc,
+                source_path=source_path,
             )
         return self.crew_service.process_page(page)
 

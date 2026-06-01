@@ -89,10 +89,10 @@ class WebPreviewServer:
         """从主应用同步 PDF 与批注"""
         pdf_path = ""
         if app.selected_files and 0 <= app.current_file_index < len(app.selected_files):
-            pdf_path = app.selected_files[app.current_file_index]
+            source = app.selected_files[app.current_file_index]
+            pdf_path = app.get_render_pdf_path(source)
 
         pages: Dict[str, List[Dict[str, Any]]] = {}
-        scale = app.zoom_level * 2
 
         for page_num, markers in app.annotations.items():
             page_items = []
@@ -100,8 +100,8 @@ class WebPreviewServer:
                 page_items.append(
                     {
                         "index": i + 1,
-                        "x": marker.x / scale,
-                        "y": marker.y / scale,
+                        "x": marker.x,
+                        "y": marker.y,
                         "text": marker.text,
                         "color": marker.color,
                     }
