@@ -282,6 +282,35 @@ class Toolbar(ctk.CTkFrame):
         self.app._persist_current_file_annotations()
         return len(annotations)
 
+    def _annotate_one_page(
+        self,
+        annotation_service,
+        page_num: int,
+        source_path: str,
+        pdf_path: str,
+        *,
+        document_context: str = "",
+        total_pages: int = 0,
+    ):
+        """单页批注（与「开始批注」相同流程，可选附带全局文档理解）"""
+        from src.models.page import Page
+
+        page = self.app.pdf_doc[page_num]
+        page_obj = Page(
+            page_number=page_num,
+            content="",
+            width=page.rect.width,
+            height=page.rect.height,
+        )
+        return annotation_service.process_page(
+            page_obj,
+            pdf_path=pdf_path,
+            pdf_doc=self.app.pdf_doc,
+            source_path=source_path,
+            document_context=document_context,
+            total_pages=total_pages or self.app.total_pages,
+        )
+
     def _on_annotate(self) -> None:
         """开始批注（当前页）"""
         if self._annotating:
@@ -301,24 +330,16 @@ class Toolbar(ctk.CTkFrame):
         def worker():
             try:
                 from src.services.annotation_service import AnnotationService
-                from src.models.page import Page
 
                 annotation_service = AnnotationService(self.app.settings.llm)
                 source_path = self.app.selected_files[self.app.current_file_index]
                 pdf_path = self.app.get_render_pdf_path(source_path)
-                page = self.app.pdf_doc[current_page]
 
-                page_obj = Page(
-                    page_number=current_page,
-                    content="",
-                    width=page.rect.width,
-                    height=page.rect.height,
-                )
-                annotations = annotation_service.process_page(
-                    page_obj,
-                    pdf_path=pdf_path,
-                    pdf_doc=self.app.pdf_doc,
-                    source_path=source_path,
+                annotations = self._annotate_one_page(
+                    annotation_service,
+                    current_page,
+                    source_path,
+                    pdf_path,
                 )
 
                 def finish():
@@ -366,7 +387,6 @@ class Toolbar(ctk.CTkFrame):
         def worker():
             try:
                 from src.services.annotation_service import AnnotationService
-                from src.models.page import Page
 
                 annotation_service = AnnotationService(self.app.settings.llm)
                 source_path = self.app.selected_files[self.app.current_file_index]
@@ -400,11 +420,11 @@ class Toolbar(ctk.CTkFrame):
                     on_progress=on_render,
                 )
 
-                update_progress(0, "正在将整份文档图片交给模型阅读...")
+                update_progress(0, "正在将整份文档交给模型理解...")
                 self.app.after(
                     0,
                     lambda: self.app.update_status(
-                        "模型正在阅读整份文档（全部页面图片）..."
+                        "模型正在理解整份文档的领域、主题与关键术语..."
                     ),
                 )
 
@@ -414,37 +434,29 @@ class Toolbar(ctk.CTkFrame):
                     source_path=source_path,
                 )
 
-                update_progress(0, "文档理解完成，开始逐页批注...")
+                update_progress(0, "全局理解完成，开始逐页批注...")
                 self.app.after(
                     0,
                     lambda: self.app.update_status(
-                        f"文档理解完成，正在逐页发送图片批注（共 {total} 页）..."
+                        f"已理解文档背景，正在按单页批注流程处理（共 {total} 页）..."
                     ),
                 )
 
                 page_results = []
 
-                for page_image in page_images:
-                    page_num = page_image.page_number
-                    page = self.app.pdf_doc[page_num]
-                    page_obj = Page(
-                        page_number=page_num,
-                        content="",
-                        width=page.rect.width,
-                        height=page.rect.height,
-                    )
-
+                for page_num in range(total):
                     update_progress(
                         page_num + 1,
-                        f"正在批注第 {page_num + 1}/{total} 页...",
+                        f"正在批注第 {page_num + 1}/{total} 页（单页流程）...",
                     )
 
-                    annotations = annotation_service.process_page(
-                        page_obj,
-                        source_path=source_path,
+                    annotations = self._annotate_one_page(
+                        annotation_service,
+                        page_num,
+                        source_path,
+                        pdf_path,
                         document_context=document_context,
                         total_pages=total,
-                        page_image=page_image,
                     )
                     if annotations:
                         page_results.append((page_num, annotations))
