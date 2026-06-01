@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PDF 批注预览</title>
+  <link rel="stylesheet" href="viewer.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+  <div class="toolbar">
+    <button id="btn-prev">上一页</button>
+    <span id="page-label">0 / 0</span>
+    <button id="btn-next">下一页</button>
+    <button id="btn-refresh">刷新</button>
+    <span id="status">加载中...</span>
+  </div>
+  <div id="viewer-wrap">
+    <div id="page-container">
+      <canvas id="pdf-canvas"></canvas>
+      <div id="annotation-layer"></div>
+    </div>
+  </div>
+  <script src="viewer.js"></script>
+</body>
+</html>

@@ -18,31 +18,40 @@ class AnnotationMarker:
         self.y = y
         self.text = text
         self.color = color
-        
-        # 折叠状态（小方块）
-        self.collapsed_width = 24
+
+        self.collapsed_width = 100
         self.collapsed_height = 24
-        
-        # 展开状态
-        self.expanded_width = 200
-        self.expanded_height = 150
-        
-        # 当前状态
+        self.expanded_width = 220
+
         self.is_expanded = False
         self.width = self.collapsed_width
         self.height = self.collapsed_height
-        
+
         self.canvas_id = None
         self.text_id = None
         self.expand_btn_id = None
         self.drag_data = {"x": 0, "y": 0}
+
+    def _calc_expanded_height(self) -> int:
+        """根据文本长度动态计算展开高度"""
+        line_height = 16
+        chars_per_line = max(8, (self.expanded_width - 20) // 10)
+        lines = 0
+        for paragraph in self.text.split("\n"):
+            paragraph = paragraph.strip()
+            if not paragraph:
+                lines += 1
+                continue
+            lines += max(1, (len(paragraph) + chars_per_line - 1) // chars_per_line)
+        content_height = lines * line_height + 40
+        return min(max(content_height, 80), 220)
 
     def toggle_expand(self):
         """切换展开/折叠状态"""
         self.is_expanded = not self.is_expanded
         if self.is_expanded:
             self.width = self.expanded_width
-            self.height = self.expanded_height
+            self.height = self._calc_expanded_height()
         else:
             self.width = self.collapsed_width
             self.height = self.collapsed_height
@@ -52,6 +61,11 @@ class AnnotationMarker:
         self.is_expanded = False
         self.width = self.collapsed_width
         self.height = self.collapsed_height
+
+    def refresh_expanded_size(self):
+        """文本更新后刷新展开尺寸"""
+        if self.is_expanded:
+            self.height = self._calc_expanded_height()
 
 
 class App(ctk.CTk):
@@ -71,11 +85,17 @@ class App(ctk.CTk):
         self.zoom_level = 1.0
         self.page_image = None
         self.tk_image = None
+        self.text_positions = {}  # LiteParse 文本位置信息
 
         # 批注相关
-        self.annotations: Dict[int, List[AnnotationMarker]] = {}  # {page_num: [markers]}
+        self.annotations: Dict[int, List[AnnotationMarker]] = {}  # 当前文件的批注
+        self.annotations_by_file: Dict[str, Dict[int, List[AnnotationMarker]]] = {}
+        self.project_file_path: str = None
+        self._autosave_job = None
         self.selected_marker: AnnotationMarker = None
         self.dragging = False
+        self._press_pos: Tuple[float, float] = None
+        self._did_drag = False
 
         # 配置窗口
         self.title("PDF/PPT 中文批注工具")
@@ -95,6 +115,15 @@ class App(ctk.CTk):
         self.bind("<Control-plus>", lambda e: self._zoom_in())
         self.bind("<Control-minus>", lambda e: self._zoom_out())
         self.bind("<Control-0>", lambda e: self._zoom_reset())
+
+        from src.services.web_preview_server import WebPreviewServer
+
+        self.web_preview = WebPreviewServer()
+        self.web_preview.start()
+        self._web_preview_opened = False
+
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.after(200, self._restore_last_session)
 
     def _create_widgets(self) -> None:
         """创建 UI 组件"""
@@ -220,7 +249,7 @@ class App(ctk.CTk):
         # 批注模式提示
         self.mode_hint = ctk.CTkLabel(
             self.sidebar_frame,
-            text="点击PDF页面添加批注",
+            text="拖动批注可移动，单击展开/折叠",
             text_color="gray"
         )
         self.mode_hint.pack(pady=5)
@@ -234,6 +263,51 @@ class App(ctk.CTk):
         self.sidebar_frame.pack(side="right", fill="y")
         self.status_bar.pack(fill="x", padx=5, pady=5)
 
+    def _current_file_path(self) -> str:
+        if 0 <= self.current_file_index < len(self.selected_files):
+            return self.selected_files[self.current_file_index]
+        return ""
+
+    def _persist_current_file_annotations(self) -> None:
+        path = self._current_file_path()
+        if path:
+            self.annotations_by_file[path] = {
+                page: list(markers) for page, markers in self.annotations.items()
+            }
+
+    def _restore_file_annotations(self, file_path: str) -> None:
+        stored = self.annotations_by_file.get(file_path, {})
+        self.annotations = {
+            int(page): list(markers) for page, markers in stored.items()
+        }
+
+    def schedule_persist(self) -> None:
+        if not self.settings.app.auto_save:
+            return
+        if self._autosave_job:
+            self.after_cancel(self._autosave_job)
+        self._autosave_job = self.after(800, self._do_persist)
+
+    def _do_persist(self) -> None:
+        self._autosave_job = None
+        from src.services.project_service import save_session
+
+        save_session(self)
+
+    def _restore_last_session(self) -> None:
+        from src.services.project_service import restore_session
+
+        restore_session(self)
+
+    def _on_close(self) -> None:
+        self._persist_current_file_annotations()
+        from src.services.project_service import save_session
+
+        save_session(self)
+        if self.pdf_doc:
+            self.pdf_doc.close()
+        self.destroy()
+
     def update_status(self, message: str) -> None:
         """更新状态栏消息"""
         self.status_bar.set_message(message)
@@ -241,6 +315,21 @@ class App(ctk.CTk):
     def update_progress(self, current: int, total: int, status: str) -> None:
         """更新进度"""
         self.status_bar.set_progress(current, total, status)
+
+    def sync_web_preview(self) -> None:
+        """同步批注数据到 PDF.js 预览服务"""
+        if hasattr(self, "web_preview"):
+            self.web_preview.update_from_app(self)
+        self.schedule_persist()
+
+    def open_web_preview(self) -> None:
+        """在浏览器中打开 PDF.js 批注预览"""
+        import webbrowser
+
+        self.sync_web_preview()
+        webbrowser.open(self.web_preview.url)
+        self._web_preview_opened = True
+        self.update_status("预览已打开，点击黄色标记查看批注，点击空白处关闭")
 
     def update_file_list(self, files: List[str]) -> None:
         """更新文件列表显示"""
@@ -290,24 +379,24 @@ class App(ctk.CTk):
         if files and self.current_file_index < 0:
             self._on_file_select(0)
 
-    def _on_file_select(self, index: int) -> None:
+    def _on_file_select(self, index: int, page: int = None) -> None:
         """选择文件"""
         if 0 <= index < len(self.selected_files):
+            self._persist_current_file_annotations()
             self.current_file_index = index
             file_path = self.selected_files[index]
             file_name = file_path.split("/")[-1].split("\\")[-1]
 
-            # 尝试读取文件内容
-            self._load_file_content(file_path)
+            self._load_file_content(file_path, page=page)
+            self._restore_file_annotations(file_path)
 
-            # 更新状态栏
             self.update_status(f"已选择: {file_name}")
 
-    def _load_file_content(self, file_path: str) -> None:
+    def _load_file_content(self, file_path: str, page: int = None) -> None:
         """加载文件内容"""
         try:
             if file_path.lower().endswith('.pdf'):
-                self._load_pdf(file_path)
+                self._load_pdf(file_path, page=page)
             elif file_path.lower().endswith(('.ppt', '.pptx')):
                 self._load_ppt(file_path)
             else:
@@ -315,20 +404,22 @@ class App(ctk.CTk):
         except Exception as e:
             messagebox.showerror("错误", f"加载文件时出错: {str(e)}")
 
-    def _load_pdf(self, file_path: str) -> None:
+    def _load_pdf(self, file_path: str, page: int = None) -> None:
         """加载PDF文件并渲染为图片"""
         try:
             import fitz  # PyMuPDF
 
-            # 关闭之前的文档
             if self.pdf_doc:
                 self.pdf_doc.close()
 
             self.pdf_doc = fitz.open(file_path)
             self.total_pages = len(self.pdf_doc)
-            self.current_page = 0
+            if page is None:
+                self.current_page = 0
+            else:
+                self.current_page = max(0, min(page, self.total_pages - 1))
 
-            # 渲染并显示
+            self._load_text_positions(file_path)
             self._render_page()
 
             self.update_status(f"已加载PDF: {self.total_pages}页")
@@ -337,6 +428,41 @@ class App(ctk.CTk):
             messagebox.showerror("错误", "请安装PyMuPDF: pip install pymupdf")
         except Exception as e:
             messagebox.showerror("错误", f"读取PDF出错: {str(e)}")
+
+    def _load_text_positions(self, file_path: str) -> None:
+        """使用 LiteParse 加载文本位置信息"""
+        try:
+            from liteparse import LiteParse
+            parser = LiteParse(ocr_enabled=False)  # 不需要 OCR，速度更快
+            result = parser.parse(file_path)
+
+            # 存储每页的文本位置信息
+            self.text_positions = {}
+            for page_data in result.pages:
+                page_num = page_data.page_num - 1  # LiteParse 是 1-indexed
+                positions = []
+
+                if hasattr(page_data, 'text_items') and page_data.text_items:
+                    for item in page_data.text_items:
+                        if hasattr(item, 'text') and item.text.strip():
+                            positions.append({
+                                "text": item.text,
+                                "x": getattr(item, 'x', 0),
+                                "y": getattr(item, 'y', 0),
+                                "width": getattr(item, 'width', 0),
+                                "height": getattr(item, 'height', 0),
+                            })
+
+                self.text_positions[page_num] = positions
+
+            print(f"LiteParse: 已加载 {len(self.text_positions)} 页的文本位置信息")
+
+        except ImportError:
+            print("提示: 未安装 liteparse，将使用基本模式")
+            self.text_positions = {}
+        except Exception as e:
+            print(f"LiteParse 加载失败: {e}")
+            self.text_positions = {}
 
     def _load_ppt(self, file_path: str) -> None:
         """加载PPT文件"""
@@ -382,7 +508,7 @@ class App(ctk.CTk):
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
         # 绑定鼠标事件
-        self.canvas.bind("<Button-1>", self._on_canvas_click)
+        self.canvas.bind("<Button-1>", self._on_canvas_press)
         self.canvas.bind("<B1-Motion>", self._on_canvas_drag)
         self.canvas.bind("<ButtonRelease-1>", self._on_canvas_release)
         self.canvas.bind("<MouseWheel>", self._on_mouse_wheel)
@@ -398,6 +524,7 @@ class App(ctk.CTk):
 
         # 更新批注列表
         self._update_annotation_list()
+        self.sync_web_preview()
 
     def _create_page_navigation(self) -> None:
         """创建页面导航（底部）"""
@@ -535,12 +662,14 @@ class App(ctk.CTk):
                 marker.text_id = rect_id
                 
             else:
-                # 折叠状态：显示小方块和简短预览
-                collapsed_width = 120  # 增加宽度以显示预览文本
-                collapsed_height = 28
-                
+                # 折叠状态：显示小标签
+                cw = marker.collapsed_width
+                ch = marker.collapsed_height
+                marker.width = cw
+                marker.height = ch
+
                 rect_id = self.canvas.create_rectangle(
-                    x, y, x + collapsed_width, y + collapsed_height,
+                    x, y, x + cw, y + ch,
                     fill=marker.color,
                     outline="#333333",
                     width=1,
@@ -550,7 +679,7 @@ class App(ctk.CTk):
                 # 绘制编号
                 idx = markers.index(marker) + 1
                 self.canvas.create_text(
-                    x + 8, y + collapsed_height / 2,
+                    x + 8, y + ch / 2,
                     text=f"{idx}",
                     anchor="w",
                     fill="white",
@@ -558,15 +687,14 @@ class App(ctk.CTk):
                     tags="annotation"
                 )
 
-                # 绘制简短预览文本（截取前15个字符）
                 preview_text = marker.text[:15] + "..." if len(marker.text) > 15 else marker.text
                 self.canvas.create_text(
-                    x + 25, y + collapsed_height / 2,
+                    x + 25, y + ch / 2,
                     text=preview_text,
                     anchor="w",
                     fill="white",
                     font=("Microsoft YaHei", 9),
-                    width=collapsed_width - 30,
+                    width=cw - 30,
                     tags="annotation"
                 )
 
@@ -574,111 +702,130 @@ class App(ctk.CTk):
                 marker.canvas_id = rect_id
                 marker.text_id = rect_id
 
-    def _on_canvas_click(self, event) -> None:
-        """Canvas点击事件"""
+    def _find_marker_at(self, x: float, y: float) -> AnnotationMarker:
+        """根据坐标查找批注"""
+        markers = self.annotations.get(self.current_page, [])
+        for marker in reversed(markers):
+            w = marker.width if marker.is_expanded else marker.collapsed_width
+            h = marker.height if marker.is_expanded else marker.collapsed_height
+            if marker.x <= x <= marker.x + w and marker.y <= y <= marker.y + h:
+                return marker
+        return None
+
+    def _on_canvas_press(self, event) -> None:
+        """鼠标按下：选中批注并准备拖动"""
         if not self.canvas:
             return
 
-        # 获取点击位置（考虑滚动）
         x = self.canvas.canvasx(event.x)
         y = self.canvas.canvasy(event.y)
+        self._press_pos = (x, y)
+        self._did_drag = False
 
-        # 检查是否点击了批注
-        clicked_items = self.canvas.find_overlapping(x - 5, y - 5, x + 5, y + 5)
-        
-        clicked_marker = None
-
-        for item in clicked_items:
-            tags = self.canvas.gettags(item)
-            if "annotation" in tags:
-                # 找到被点击的批注
-                markers = self.annotations.get(self.current_page, [])
-                for marker in markers:
-                    if marker.canvas_id == item or marker.text_id == item:
-                        clicked_marker = marker
-                        break
-                break
-
+        clicked_marker = self._find_marker_at(x, y)
         if clicked_marker:
-            # 点击了某个批注
-            if clicked_marker.is_expanded:
-                # 已展开，检查是否点击了关闭按钮
-                # 简化处理：点击就折叠
-                clicked_marker.collapse()
-                self.selected_marker = None
-            else:
-                # 未展开，先收回其他展开的批注
-                markers = self.annotations.get(self.current_page, [])
-                for m in markers:
-                    if m != clicked_marker:
-                        m.collapse()
-                
-                # 展开点击的批注
-                clicked_marker.toggle_expand()
-                self.selected_marker = clicked_marker
-            
-            # 重新显示
-            self._show_annotations()
-            
-            # 更新右侧批注内容
-            if self.selected_marker:
-                self.annotation_input.delete("1.0", "end")
-                self.annotation_input.insert("1.0", self.selected_marker.text)
-                self.color_var.set(self.selected_marker.color)
-            
+            self.selected_marker = clicked_marker
+            self.dragging = True
+            clicked_marker.drag_data = {"x": x - clicked_marker.x, "y": y - clicked_marker.y}
+            self.annotation_input.delete("1.0", "end")
+            self.annotation_input.insert("1.0", clicked_marker.text)
+            self.color_var.set(clicked_marker.color)
             self._update_annotation_list()
         else:
-            # 点击了空白区域，收回所有展开的批注
-            markers = self.annotations.get(self.current_page, [])
-            need_refresh = False
-            for marker in markers:
-                if marker.is_expanded:
-                    marker.collapse()
-                    need_refresh = True
-            
-            if need_refresh:
-                self.selected_marker = None
-                self._show_annotations()
-                self._update_annotation_list()
-            
-            # 检查是否处于添加批注模式
-            if hasattr(self, '_adding_annotation') and self._adding_annotation:
-                self._create_annotation_at(x, y)
-                self._adding_annotation = False
-                self.mode_hint.configure(text="点击PDF页面添加批注")
+            self.selected_marker = None
+            self.dragging = False
 
     def _on_canvas_drag(self, event) -> None:
-        """Canvas拖拽事件"""
+        """鼠标拖动：移动批注"""
         if not self.dragging or not self.selected_marker:
             return
 
         x = self.canvas.canvasx(event.x)
         y = self.canvas.canvasy(event.y)
 
-        marker = self.selected_marker
+        if self._press_pos:
+            dx = abs(x - self._press_pos[0])
+            dy = abs(y - self._press_pos[1])
+            if dx > 3 or dy > 3:
+                self._did_drag = True
 
-        # 移动批注
+        marker = self.selected_marker
         marker.x = x - marker.drag_data["x"]
         marker.y = y - marker.drag_data["y"]
+        marker.x = max(0, marker.x)
+        marker.y = max(0, marker.y)
 
-        # 重新显示批注（因为需要更新所有元素位置）
         self._show_annotations()
 
     def _on_canvas_release(self, event) -> None:
-        """Canvas释放事件"""
-        self.dragging = False
+        """鼠标释放：区分点击与拖动"""
+        if not self.canvas:
+            return
 
-    def _on_mouse_wheel(self, event) -> None:
-        """鼠标滚轮事件"""
+        x = self.canvas.canvasx(event.x)
+        y = self.canvas.canvasy(event.y)
+
+        if self._did_drag:
+            self.dragging = False
+            self.update_status("批注位置已更新")
+            self.sync_web_preview()
+            return
+
+        clicked_marker = self._find_marker_at(x, y)
+
+        if clicked_marker:
+            if clicked_marker.is_expanded:
+                clicked_marker.collapse()
+                self.selected_marker = None
+            else:
+                for m in self.annotations.get(self.current_page, []):
+                    if m != clicked_marker:
+                        m.collapse()
+                clicked_marker.toggle_expand()
+                self.selected_marker = clicked_marker
+
+            self._show_annotations()
+
+            if self.selected_marker:
+                self.annotation_input.delete("1.0", "end")
+                self.annotation_input.insert("1.0", self.selected_marker.text)
+                self.color_var.set(self.selected_marker.color)
+
+            self._update_annotation_list()
+        else:
+            markers = self.annotations.get(self.current_page, [])
+            need_refresh = False
+            for marker in markers:
+                if marker.is_expanded:
+                    marker.collapse()
+                    need_refresh = True
+
+            if need_refresh:
+                self.selected_marker = None
+                self._show_annotations()
+                self._update_annotation_list()
+
+            if hasattr(self, "_adding_annotation") and self._adding_annotation:
+                self._create_annotation_at(x, y)
+                self._adding_annotation = False
+                self.mode_hint.configure(text="拖动批注可移动，单击展开/折叠")
+
+        self.dragging = False
+        self._press_pos = None
+        self._did_drag = False
+
+    def _on_mouse_wheel(self, event) -> str:
+        """鼠标滚轮缩放（仅 PDF 预览区）"""
         if event.delta > 0:
             self._zoom_in()
         else:
             self._zoom_out()
+        return "break"
 
     def _add_annotation_mode(self) -> None:
         """进入添加批注模式"""
         self._adding_annotation = True
-        self.mode_hint.configure(text="请点击PDF页面放置批注")
+        self.mode_hint.configure(text="请点击PDF页面放置批注，之后可拖动移动")
 
     def _create_annotation_at(self, x: int, y: int) -> None:
         """在指定位置创建批注"""
@@ -703,6 +850,7 @@ class App(ctk.CTk):
         self._update_annotation_list()
 
         self.update_status("批注已添加")
+        self.sync_web_preview()
 
     def _save_annotation(self) -> None:
         """保存批注内容"""
@@ -717,11 +865,13 @@ class App(ctk.CTk):
 
         self.selected_marker.text = text
         self.selected_marker.color = self.color_var.get()
+        self.selected_marker.refresh_expanded_size()
 
         self._show_annotations()
         self._update_annotation_list()
 
         self.update_status("批注已保存")
+        self.sync_web_preview()
 
     def _delete_annotation(self) -> None:
         """删除批注"""
@@ -739,6 +889,7 @@ class App(ctk.CTk):
             self._update_annotation_list()
 
             self.update_status("批注已删除")
+            self.sync_web_preview()
 
     def _set_color(self, color: str) -> None:
         """设置批注颜色"""
@@ -835,8 +986,8 @@ class App(ctk.CTk):
         """移除文件"""
         if 0 <= index < len(self.selected_files):
             removed = self.selected_files.pop(index)
+            self.annotations_by_file.pop(removed, None)
 
-            # 如果移除的是当前选中的文件
             if index == self.current_file_index:
                 if self.pdf_doc:
                     self.pdf_doc.close()
@@ -861,3 +1012,4 @@ class App(ctk.CTk):
 
             file_name = removed.split("/")[-1].split("\\")[-1]
             self.update_status(f"已移除: {file_name}")
+            self.sync_web_preview()

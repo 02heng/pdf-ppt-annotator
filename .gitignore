@@ -8,3 +8,15 @@ build/
 *.egg-info/
 .env
 config/local.yaml
+
+# 本机工程与会话（含 PDF 路径、批注数据）
+*.topdf
+*_data/
+session.json
+
+# IDE / 系统
+.vscode/
+.idea/
+*.log
+Thumbs.db
+Desktop.ini

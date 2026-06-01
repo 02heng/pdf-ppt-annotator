@@ -45,15 +45,17 @@ class ExportService:
             raise ValueError(f"导出失败: {str(e)}") from e
     
     def _add_overlay_annotations(self, page, annotations: list) -> None:
-        """添加覆盖式批注"""
-        import fitz
-        
-        for ann in annotations:
-            annot = page.add_text_annot(
-                fitz.Point(ann.position_x, ann.position_y),
-                ann.content
+        """添加悬停便签批注"""
+        from src.utils.pdf_annotation import add_hover_sticky_note
+
+        for i, ann in enumerate(annotations):
+            add_hover_sticky_note(
+                page,
+                x=ann.position_x,
+                y=ann.position_y,
+                text=ann.content,
+                index=i + 1,
             )
-            annot.set_info(content=ann.content)
     
     def export_annotations_markdown(
         self,

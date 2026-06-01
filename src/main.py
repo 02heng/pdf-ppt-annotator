@@ -3,6 +3,7 @@ import os
 import yaml
 from pathlib import Path
 from src.models.config import Settings
+from src.ui.ctk_patch import apply_ctk_patches
 from src.ui.app import App
 
 
@@ -54,6 +55,7 @@ def save_config(settings: Settings) -> None:
 
 def main():
     """主函数"""
+    apply_ctk_patches()
     settings = load_config()
     app = App(settings)
     app.mainloop()
