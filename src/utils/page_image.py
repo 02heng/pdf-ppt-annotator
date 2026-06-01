@@ -1,11 +1,20 @@
 """PDF / PPT 页面转图片工具"""
 import base64
-import io
 import os
-from typing import Optional, Tuple
+from dataclasses import dataclass
+from typing import Callable, List, Optional, Tuple
 
 import fitz
-from PIL import Image
+
+
+@dataclass
+class PageImageData:
+    page_number: int
+    png_bytes: bytes
+    image_b64: str
+    width: float
+    height: float
+    text_supplement: str = ""
 
 
 def render_page_to_image(
@@ -13,12 +22,7 @@ def render_page_to_image(
     page_number: int,
     dpi: int = 150,
 ) -> Tuple[bytes, str, float, float]:
-    """
-    将 PDF 单页渲染为 PNG 图片
-
-    Returns:
-        (png_bytes, base64_str, page_width, page_height)
-    """
+    """将 PDF 单页渲染为 PNG"""
     doc = fitz.open(pdf_path)
     try:
         page = doc[page_number]
@@ -55,23 +59,6 @@ def render_page_from_doc(
     return png_bytes, b64_str, page_width, page_height
 
 
-def save_page_image_temp(
-    pdf_path: str,
-    page_number: int,
-    output_dir: str,
-    dpi: int = 150,
-) -> str:
-    """保存页面图片到临时目录，返回文件路径"""
-    import os
-
-    os.makedirs(output_dir, exist_ok=True)
-    png_bytes, _, _, _ = render_page_to_image(pdf_path, page_number, dpi)
-    output_path = os.path.join(output_dir, f"page_{page_number + 1}.png")
-    with open(output_path, "wb") as f:
-        f.write(png_bytes)
-    return output_path
-
-
 def render_page_for_annotation(
     page_number: int,
     *,
@@ -80,12 +67,7 @@ def render_page_for_annotation(
     source_path: str = "",
     dpi: int = 150,
 ) -> Tuple[bytes, str, float, float]:
-    """
-    将文档单页渲染为 PNG（PDF 与 PPTX 统一入口，供 AI 视觉分析）
-
-    Returns:
-        (png_bytes, base64_str, page_width_pt, page_height_pt)
-    """
+    """将文档单页渲染为 PNG base64（PDF 与 PPTX 统一入口）"""
     original = source_path or pdf_path
     lower = original.lower()
 
@@ -102,13 +84,52 @@ def render_page_for_annotation(
     raise ValueError("无法渲染页面：缺少有效的 PDF 或 PPTX 路径")
 
 
+def render_all_pages_for_annotation(
+    total_pages: int,
+    *,
+    pdf_path: str = "",
+    pdf_doc: Optional[fitz.Document] = None,
+    source_path: str = "",
+    dpi: int = 150,
+    on_progress: Optional[Callable[[int, int], None]] = None,
+) -> List[PageImageData]:
+    """将文档每一页渲染为 PNG base64，供模型视觉阅读"""
+    pages: List[PageImageData] = []
+    for page_num in range(total_pages):
+        png_bytes, image_b64, width, height = render_page_for_annotation(
+            page_num,
+            pdf_path=pdf_path,
+            pdf_doc=pdf_doc,
+            source_path=source_path,
+            dpi=dpi,
+        )
+        supplement = extract_page_text_for_annotation(
+            page_num,
+            pdf_doc=pdf_doc,
+            source_path=source_path,
+        )
+        pages.append(
+            PageImageData(
+                page_number=page_num,
+                png_bytes=png_bytes,
+                image_b64=image_b64,
+                width=width,
+                height=height,
+                text_supplement=supplement.strip(),
+            )
+        )
+        if on_progress:
+            on_progress(page_num + 1, total_pages)
+    return pages
+
+
 def extract_page_text_for_annotation(
     page_number: int,
     *,
     pdf_doc: Optional[fitz.Document] = None,
     source_path: str = "",
 ) -> str:
-    """提取页面文字（PPTX 从 shapes 提取，PDF 从文本层提取）"""
+    """提取页面文字（仅用于 UI 展示等非视觉批注场景）"""
     if source_path.lower().endswith(".pptx") and os.path.isfile(source_path):
         from src.utils.pptx_renderer import extract_pptx_slide_text
 

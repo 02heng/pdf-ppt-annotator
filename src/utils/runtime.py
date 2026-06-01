@@ -37,4 +37,6 @@ def get_local_config_path() -> Path:
 
 
 def get_web_dir() -> Path:
-    return get_resource_path("web")
+    if is_frozen():
+        return get_resource_path("web")
+    return get_resource_path("src", "web")

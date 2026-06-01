@@ -307,17 +307,10 @@ class Toolbar(ctk.CTkFrame):
                 source_path = self.app.selected_files[self.app.current_file_index]
                 pdf_path = self.app.get_render_pdf_path(source_path)
                 page = self.app.pdf_doc[current_page]
-                from src.utils.page_image import extract_page_text_for_annotation
-                from src.models.page import Page
 
-                page_text = extract_page_text_for_annotation(
-                    current_page,
-                    pdf_doc=self.app.pdf_doc,
-                    source_path=source_path,
-                )
                 page_obj = Page(
                     page_number=current_page,
-                    content=page_text,
+                    content="",
                     width=page.rect.width,
                     height=page.rect.height,
                 )
@@ -378,38 +371,80 @@ class Toolbar(ctk.CTkFrame):
                 annotation_service = AnnotationService(self.app.settings.llm)
                 source_path = self.app.selected_files[self.app.current_file_index]
                 pdf_path = self.app.get_render_pdf_path(source_path)
-                from src.utils.page_image import extract_page_text_for_annotation
+
+                def update_progress(current: int, message: str) -> None:
+                    self.app.after(
+                        0,
+                        lambda c=current, m=message: self.app.update_progress(
+                            c, total, m
+                        ),
+                    )
+
+                update_progress(0, "正在将每页转为图片...")
+                self.app.after(
+                    0,
+                    lambda: self.app.update_status("正在渲染文档页面为图片（base64）..."),
+                )
+
+                def on_render(current: int, render_total: int) -> None:
+                    update_progress(
+                        0,
+                        f"正在渲染第 {current}/{render_total} 页图片...",
+                    )
+
+                page_images = annotation_service.render_document_page_images(
+                    total_pages=total,
+                    pdf_path=pdf_path,
+                    pdf_doc=self.app.pdf_doc,
+                    source_path=source_path,
+                    on_progress=on_render,
+                )
+
+                update_progress(0, "正在将整份文档图片交给模型阅读...")
+                self.app.after(
+                    0,
+                    lambda: self.app.update_status(
+                        "模型正在阅读整份文档（全部页面图片）..."
+                    ),
+                )
+
+                document_context = annotation_service.analyze_document_context(
+                    page_images,
+                    total_pages=total,
+                    source_path=source_path,
+                )
+
+                update_progress(0, "文档理解完成，开始逐页批注...")
+                self.app.after(
+                    0,
+                    lambda: self.app.update_status(
+                        f"文档理解完成，正在逐页发送图片批注（共 {total} 页）..."
+                    ),
+                )
 
                 page_results = []
 
-                for page_num in range(total):
+                for page_image in page_images:
+                    page_num = page_image.page_number
                     page = self.app.pdf_doc[page_num]
-                    page_text = extract_page_text_for_annotation(
-                        page_num,
-                        pdf_doc=self.app.pdf_doc,
-                        source_path=source_path,
-                    )
                     page_obj = Page(
                         page_number=page_num,
-                        content=page_text,
+                        content="",
                         width=page.rect.width,
                         height=page.rect.height,
                     )
 
-                    def update_progress(p=page_num):
-                        self.app.update_progress(
-                            p + 1,
-                            total,
-                            f"正在分析第 {p + 1}/{total} 页...",
-                        )
-
-                    self.app.after(0, update_progress)
+                    update_progress(
+                        page_num + 1,
+                        f"正在批注第 {page_num + 1}/{total} 页...",
+                    )
 
                     annotations = annotation_service.process_page(
                         page_obj,
-                        pdf_path=pdf_path,
-                        pdf_doc=self.app.pdf_doc,
                         source_path=source_path,
+                        document_context=document_context,
+                        total_pages=total,
+                        page_image=page_image,
                     )
                     if annotations:
                         page_results.append((page_num, annotations))

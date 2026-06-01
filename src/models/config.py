@@ -17,7 +17,7 @@ class OllamaConfig(BaseModel):
 class DeepSeekConfig(BaseModel):
     """DeepSeek 配置"""
     api_key: str = ""
-    model: str = "deepseek-chat"
+    model: str = "deepseek-v4-pro"
     temperature: float = 0.3
     max_tokens: int = 4096
     base_url: str = "https://api.deepseek.com"

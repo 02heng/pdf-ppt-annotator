@@ -70,19 +70,68 @@ class AnnotationService:
         pdf_path: str = "",
         pdf_doc=None,
         source_path: str = "",
+        document_context: str = "",
+        total_pages: int = 0,
+        page_image=None,
     ) -> List[Annotation]:
-        """处理单个页面（优先使用页面图片视觉分析）"""
-        if pdf_path or pdf_doc is not None or source_path:
+        """处理单个页面（将页图 base64 交给视觉模型阅读）"""
+        if pdf_path or pdf_doc is not None or source_path or page_image is not None:
             from src.services.vision_annotation_service import VisionAnnotationService
 
             vision_service = VisionAnnotationService(self.crew_service.llm_service.config)
+            if page_image is not None:
+                return vision_service.annotate_page_from_image(
+                    page_image,
+                    document_context=document_context,
+                    total_pages=total_pages,
+                )
             return vision_service.annotate_page_from_pdf(
                 pdf_path=pdf_path,
                 page_number=page.page_number,
                 pdf_doc=pdf_doc,
                 source_path=source_path,
+                document_context=document_context,
+                total_pages=total_pages,
             )
         return self.crew_service.process_page(page)
+
+    def analyze_document_context(
+        self,
+        page_images,
+        *,
+        total_pages: int,
+        source_path: str = "",
+    ) -> str:
+        """将全部页面 base64 图片交给模型通读，生成理解摘要"""
+        from src.services.vision_annotation_service import VisionAnnotationService
+
+        vision_service = VisionAnnotationService(self.crew_service.llm_service.config)
+        vision_service.ensure_vision_provider()
+        return vision_service.analyze_document_from_images(
+            page_images,
+            total_pages=total_pages,
+            source_path=source_path,
+        )
+
+    def render_document_page_images(
+        self,
+        *,
+        total_pages: int,
+        pdf_path: str = "",
+        pdf_doc=None,
+        source_path: str = "",
+        on_progress=None,
+    ):
+        """将文档每页渲染为 base64 图片"""
+        from src.utils.page_image import render_all_pages_for_annotation
+
+        return render_all_pages_for_annotation(
+            total_pages,
+            pdf_path=pdf_path,
+            pdf_doc=pdf_doc,
+            source_path=source_path,
+            on_progress=on_progress,
+        )
 
     def switch_llm_provider(self, provider: str) -> None:
         """切换 LLM 提供商"""

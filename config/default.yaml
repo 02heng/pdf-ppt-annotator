@@ -16,7 +16,7 @@ llm:
     api_key: ''  # 在这里填入您的 DeepSeek API Key
     base_url: https://api.deepseek.com
     max_tokens: 4096
-    model: deepseek-chat
+    model: deepseek-v4-pro
     temperature: 0.3
   ollama:
     base_url: http://localhost:11434
