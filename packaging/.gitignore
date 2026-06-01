@@ -1,0 +1,8 @@
+# 打包产物（不含源码，仅编译后的可执行文件与依赖）
+/dist/
+/build/
+/packaging/output/
+
+# PyInstaller 中间文件
+packaging/build/
+packaging/dist/

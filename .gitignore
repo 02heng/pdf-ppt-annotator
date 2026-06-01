@@ -4,6 +4,9 @@ __pycache__/
 .eggs/
 dist/
 build/
+packaging/output/
+packaging/build/
+packaging/dist/
 *.egg
 *.egg-info/
 .env

@@ -5,7 +5,8 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-WEB_DIR = os.path.join(os.path.dirname(__file__), "..", "web")
+from src.utils.runtime import get_web_dir
+
 DEFAULT_PORT = 8765
 
 
@@ -33,12 +34,13 @@ class WebPreviewServer:
 
         from flask import Flask, jsonify, send_file, send_from_directory
 
-        app = Flask(__name__, static_folder=WEB_DIR, static_url_path="")
+        web_dir = str(get_web_dir())
+        app = Flask(__name__, static_folder=web_dir, static_url_path="")
         self._app = app
 
         @app.get("/")
         def index():
-            return send_from_directory(WEB_DIR, "index.html")
+            return send_from_directory(web_dir, "index.html")
 
         @app.get("/api/state")
         def api_state():

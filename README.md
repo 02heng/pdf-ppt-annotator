@@ -13,35 +13,35 @@
 
 ## 安装
 
-### 1. 克隆项目
+### 方式一：安装包（推荐给最终用户）
+
+无需安装 Python 或任何库。详见 [packaging/README.md](packaging/README.md)。
+
+| 平台 | 开发者构建命令 | 分发给用户 |
+|------|----------------|------------|
+| Windows | `.\packaging\build_windows.ps1` | `packaging\output\TOPDFAnnotator-Setup-*.exe` |
+| macOS | `./packaging/build_mac.sh`（需在 Mac 上运行） | `packaging/output/TOPDFAnnotator-*.dmg` |
+
+### 方式二：源码运行（开发者）
+
+#### 1. 克隆项目
 
 ```bash
-git clone https://github.com/your-username/pdf-ppt-annotator.git
+git clone https://github.com/02heng/pdf-ppt-annotator.git
 cd pdf-ppt-annotator
 ```
 
-### 2. 安装依赖
+#### 2. 安装依赖
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. 配置
+#### 3. 配置
 
-编辑 `config/default.yaml` 配置 LLM 提供商和 API 密钥：
+编辑 `config/default.yaml` 或在应用「设置」中填写 API Key。
 
-```yaml
-llm:
-  provider: "openai"  # 或 "ollama"
-  openai:
-    api_key: "your-api-key"
-    model: "gpt-4o"
-  ollama:
-    base_url: "http://localhost:11434"
-    model: "llama3:70b"
-```
-
-### 4. 运行
+#### 4. 运行
 
 ```bash
 python -m src.main
