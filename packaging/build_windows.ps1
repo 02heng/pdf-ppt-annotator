@@ -16,7 +16,11 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 
+$AppVersion = (Get-Content -LiteralPath (Join-Path $Root "VERSION") -Raw).Trim()
+if (-not $AppVersion) { $AppVersion = "0.1.0" }
+
 Write-Host "==> 项目目录: $Root"
+Write-Host "==> 版本: v$AppVersion"
 
 Write-Host "==> 生成应用图标 (assets/branding/icon.ico)..."
 python scripts/generate_app_icons.py
@@ -45,8 +49,8 @@ $Iscc = $IsccCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 
 if ($Iscc) {
     Write-Host "==> Inno Setup 编译安装包..."
-    & $Iscc "packaging\windows\installer.iss"
-    Write-Host "==> 安装包: packaging\output\TOPDFAnnotator-Setup-1.0.0-win64.exe"
+    & $Iscc "/DMyAppVersion=$AppVersion" "packaging\windows\installer.iss"
+    Write-Host "==> 安装包: packaging\output\TOPDFAnnotator-Setup-$AppVersion-win64.exe"
 } else {
     Write-Host ""
     Write-Host "未检测到 Inno Setup 6，已跳过安装包生成。" -ForegroundColor Yellow

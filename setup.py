@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="pdf-ppt-annotator",
-    version="1.0.0",
+    version="0.1.0",
     packages=find_packages(),
     install_requires=[
         "crewai>=1.14.0",

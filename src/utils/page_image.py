@@ -144,6 +144,18 @@ def extract_page_text_for_annotation(
         return extract_pptx_slide_text(source_path, page_number)
 
     if pdf_doc is not None and 0 <= page_number < len(pdf_doc):
-        return pdf_doc[page_number].get_text() or ""
+        text = (pdf_doc[page_number].get_text() or "").strip()
+        if len(text) >= 80:
+            return text
+        try:
+            _png, b64, _w, _h = render_page_from_doc(pdf_doc, page_number, dpi=150)
+            from src.utils.image_ocr import ocr_image_b64
+
+            ocr = (ocr_image_b64(b64) or "").strip()
+            if ocr:
+                return ocr
+        except Exception:
+            pass
+        return text
 
     return ""

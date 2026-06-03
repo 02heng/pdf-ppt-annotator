@@ -4,6 +4,12 @@
   scrollbar-color: #c4b5fd #ede9fe;
 }
 
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
   font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
@@ -82,6 +88,68 @@ body {
   box-shadow: inset 0 0 0 2px #7c3aed;
 }
 
+.toolbar-zoom {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.toolbar-zoom button {
+  min-width: 32px;
+  padding: 6px 10px;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.toolbar-zoom #btn-zoom-reset {
+  font-size: 12px;
+  padding: 6px 8px;
+  min-width: auto;
+}
+
+#zoom-label {
+  min-width: 48px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+  user-select: none;
+}
+
+.toolbar-spacer {
+  flex: 1;
+  min-width: 8px;
+}
+
+.toolbar-save-ink-btn {
+  background: rgba(255, 255, 255, 0.96) !important;
+  color: #5b21b6 !important;
+  border: none;
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(30, 22, 51, 0.08);
+}
+
+.toolbar-save-ink-btn:hover {
+  background: #ffffff !important;
+  transform: translateY(-1px);
+}
+
+.tool-item-save {
+  color: #5b21b6;
+  font-weight: 600;
+  border-top: 1px solid #f1f5f9;
+  margin-top: 4px;
+  padding-top: 12px !important;
+}
+
 .toolbar span {
   font-size: 14px;
   color: #ffffff;
@@ -91,7 +159,9 @@ body {
 #status {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.9);
-  margin-left: auto;
+  flex: 1;
+  text-align: right;
+  min-width: 0;
 }
 
 #page-label {
@@ -195,10 +265,11 @@ body {
 
 #viewer-wrap {
   flex: 1;
+  min-height: 0;
   overflow: auto;
   display: flex;
   justify-content: center;
-  align-items: center;
+  align-items: flex-start;
   padding: 24px;
   background: linear-gradient(180deg, #faf8ff 0%, #f4f0fa 50%, #ffffff 100%);
 }
@@ -232,11 +303,20 @@ body {
 }
 
 #page-container.page-magnify-smooth {
-  transition: transform 0.56s cubic-bezier(0.33, 1, 0.68, 1);
+  transition: transform 0.22s cubic-bezier(0.2, 0.9, 0.35, 1);
+}
+
+#page-container.page-magnify-smooth #pdf-canvas {
+  filter: blur(0.6px);
+  transition: filter 0.22s cubic-bezier(0.2, 0.9, 0.35, 1);
 }
 
 #page-container.page-magnify-sharp {
   transition: none;
+}
+
+#page-container.page-magnify-sharp #pdf-canvas {
+  filter: none;
 }
 
 #pdf-canvas {
@@ -274,6 +354,35 @@ body {
   pointer-events: none;
   z-index: 10;
   overflow: visible;
+}
+
+/* 预览窗口内当前可见范围（非批注框）；虚线外内容需滚动才可能看到 */
+#visible-area-guide {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px dashed rgba(91, 33, 182, 0.45);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 12;
+}
+
+.annot-inline {
+  position: absolute;
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 600;
+  color: #7c2d12;
+  white-space: pre-wrap;
+  word-break: break-word;
+  pointer-events: none;
+  z-index: 8;
+  text-shadow: 0 0 3px #fff, 0 0 6px #fff;
+}
+
+.annot-inline.vertical {
+  white-space: nowrap;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
 }
 
 .annot-marker {

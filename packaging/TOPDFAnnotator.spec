@@ -6,6 +6,12 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 ROOT = Path(SPECPATH).resolve().parent
+_version_file = ROOT / "VERSION"
+APP_VERSION = (
+    _version_file.read_text(encoding="utf-8").strip()
+    if _version_file.is_file()
+    else "0.1.0"
+)
 
 block_cipher = None
 
@@ -102,8 +108,8 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleName": "TO PDF 批注工具",
             "CFBundleDisplayName": "TO PDF 批注工具",
-            "CFBundleShortVersionString": "1.0.0",
-            "CFBundleVersion": "1.0.0",
+            "CFBundleShortVersionString": APP_VERSION,
+            "CFBundleVersion": APP_VERSION,
             "NSHighResolutionCapable": True,
         },
     )

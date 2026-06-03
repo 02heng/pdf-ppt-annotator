@@ -19,8 +19,10 @@
 
 | 平台 | 开发者构建命令 | 分发给用户 |
 |------|----------------|------------|
-| Windows | `.\packaging\build_windows.ps1` | `packaging\output\TOPDFAnnotator-Setup-*.exe` |
-| macOS | `./packaging/build_mac.sh`（需在 Mac 上运行） | `packaging/output/TOPDFAnnotator-*.dmg` |
+| Windows | `.\packaging\build_windows.ps1` | `packaging\output\TOPDFAnnotator-Setup-0.1.0-win64.exe` |
+| macOS | GitHub Actions 或 `./packaging/build_mac.sh` | `packaging/output/TOPDFAnnotator-0.1.0-mac.dmg` |
+
+发布 **v0.1.0** 安装包：推送标签 `git push origin v0.1.0` 后，在 [Releases](https://github.com/02heng/pdf-ppt-annotator/releases) 下载 Windows / macOS 安装包，**无需安装 Python**。
 
 ### 方式二：源码运行（开发者）
 

@@ -73,6 +73,7 @@ class SettingsDialog(ctk.CTkToplevel):
         UITheme.style_secondary(self.cancel_btn)
         for seg in (
             getattr(self, "provider_segment", None),
+            getattr(self, "xiaomi_mode_segment", None),
             getattr(self, "mode_segment", None),
             getattr(self, "detail_segment", None),
             getattr(self, "theme_segment", None),
@@ -84,6 +85,7 @@ class SettingsDialog(ctk.CTkToplevel):
             getattr(self, "openai_frame", None),
             getattr(self, "ollama_frame", None),
             getattr(self, "deepseek_frame", None),
+            getattr(self, "xiaomi_frame", None),
             getattr(self, "font_frame", None),
         ):
             if frame is not None:
@@ -98,6 +100,7 @@ class SettingsDialog(ctk.CTkToplevel):
             "OpenAI": "openai",
             "Ollama": "ollama",
             "DeepSeek": "deepseek",
+            "小米 MiMo": "xiaomi",
         }
         self._provider_label_map = {v: k for k, v in self._provider_value_map.items()}
         initial_label = self._provider_label_map.get(
@@ -106,7 +109,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self.provider_var = ctk.StringVar(value=initial_label)
         self.provider_segment = ctk.CTkSegmentedButton(
             self.llm_tab,
-            values=["OpenAI", "Ollama", "DeepSeek"],
+            values=["OpenAI", "Ollama", "DeepSeek", "小米 MiMo"],
             variable=self.provider_var,
             command=self._on_provider_change,
         )
@@ -158,6 +161,70 @@ class SettingsDialog(ctk.CTkToplevel):
         self.deepseek_base_url_entry = ctk.CTkEntry(self.deepseek_frame)
         self.deepseek_base_url_entry.pack(fill="x", padx=5, pady=2)
         self.deepseek_base_url_entry.insert(0, self.settings.llm.deepseek.base_url)
+
+        from src.models.config import xiaomi_default_base_url
+
+        self.xiaomi_frame = ctk.CTkFrame(self.llm_tab)
+        self.xiaomi_frame.pack(fill="x", padx=10, pady=5)
+
+        ctk.CTkLabel(self.xiaomi_frame, text="计费方式:").pack(anchor="w", padx=5, pady=2)
+        mode_map = {"Token Plan 订阅": "token_plan", "按量付费 API": "payg"}
+        self._xiaomi_mode_map = mode_map
+        self._xiaomi_mode_label = {
+            v: k for k, v in mode_map.items()
+        }
+        initial_mode = getattr(self.settings.llm.xiaomi, "api_mode", "token_plan") or "token_plan"
+        self.xiaomi_mode_var = ctk.StringVar(
+            value=self._xiaomi_mode_label.get(initial_mode, "Token Plan 订阅")
+        )
+        self.xiaomi_mode_segment = ctk.CTkSegmentedButton(
+            self.xiaomi_frame,
+            values=list(mode_map.keys()),
+            variable=self.xiaomi_mode_var,
+            command=self._on_xiaomi_mode_change,
+        )
+        self.xiaomi_mode_segment.pack(fill="x", padx=5, pady=4)
+
+        ctk.CTkLabel(
+            self.xiaomi_frame,
+            text="Token Plan：在「订阅管理」复制 tp- 开头的 Key 与 Base URL\n"
+            "https://platform.xiaomimimo.com/console/plan-manage",
+            font=ctk.CTkFont(size=11),
+            text_color="gray",
+            wraplength=420,
+            justify="left",
+        ).pack(anchor="w", padx=5, pady=(0, 4))
+
+        ctk.CTkLabel(self.xiaomi_frame, text="API Key:").pack(anchor="w", padx=5, pady=2)
+        self.xiaomi_api_key_entry = ctk.CTkEntry(self.xiaomi_frame, show="*")
+        self.xiaomi_api_key_entry.pack(fill="x", padx=5, pady=2)
+        self.xiaomi_api_key_entry.insert(0, self.settings.llm.xiaomi.api_key)
+
+        ctk.CTkLabel(self.xiaomi_frame, text="模型:").pack(anchor="w", padx=5, pady=2)
+        self.xiaomi_model_entry = ctk.CTkEntry(self.xiaomi_frame)
+        self.xiaomi_model_entry.pack(fill="x", padx=5, pady=2)
+        self.xiaomi_model_entry.insert(0, self.settings.llm.xiaomi.model)
+
+        ctk.CTkLabel(self.xiaomi_frame, text="Base URL（OpenAI 兼容 /v1）:").pack(
+            anchor="w", padx=5, pady=2
+        )
+        self.xiaomi_base_url_entry = ctk.CTkEntry(self.xiaomi_frame)
+        self.xiaomi_base_url_entry.pack(fill="x", padx=5, pady=2)
+        saved_url = (self.settings.llm.xiaomi.base_url or "").strip()
+        if not saved_url:
+            saved_url = xiaomi_default_base_url(initial_mode)
+        self.xiaomi_base_url_entry.insert(0, saved_url)
+
+        ctk.CTkLabel(
+            self.xiaomi_frame,
+            text=(
+                "请填 mimo-v2.5（全模态）。若填 mimo-v2.5-pro，本应用仍会按 mimo-v2.5 调用 API。"
+                "订阅 Base URL：token-plan-cn.xiaomimimo.com/v1"
+            ),
+            font=ctk.CTkFont(size=11),
+            text_color="gray",
+            wraplength=420,
+        ).pack(anchor="w", padx=5, pady=(0, 6))
         
         self._on_provider_change(self.provider_var.get())
     
@@ -172,7 +239,14 @@ class SettingsDialog(ctk.CTkToplevel):
             variable=self.mode_var
         )
         self.mode_segment.pack(fill="x", padx=10, pady=5)
-        
+        ctk.CTkLabel(
+            self.annotation_tab,
+            text="覆盖：在原文旁直接显示中文翻译；侧边栏：数字标记 + 长文批注",
+            font=ctk.CTkFont(size=11),
+            text_color="gray",
+            wraplength=420,
+        ).pack(anchor="w", padx=10, pady=(0, 8))
+
         ctk.CTkLabel(self.annotation_tab, text="详细程度:").pack(anchor="w", padx=10, pady=5)
         
         self.detail_var = ctk.StringVar(value=self.settings.annotation.detail_level)
@@ -213,6 +287,14 @@ class SettingsDialog(ctk.CTkToplevel):
         )
         self.language_segment.pack(fill="x", padx=10, pady=5)
     
+    def _on_xiaomi_mode_change(self, value: str) -> None:
+        from src.models.config import xiaomi_default_base_url
+
+        mode = getattr(self, "_xiaomi_mode_map", {}).get(value, "token_plan")
+        if hasattr(self, "xiaomi_base_url_entry"):
+            self.xiaomi_base_url_entry.delete(0, "end")
+            self.xiaomi_base_url_entry.insert(0, xiaomi_default_base_url(mode))
+
     def _on_provider_change(self, value: str) -> None:
         """切换提供商时显示对应的设置框架"""
         provider = getattr(self, "_provider_value_map", {}).get(value, value)
@@ -220,6 +302,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self.openai_frame.pack_forget()
         self.ollama_frame.pack_forget()
         self.deepseek_frame.pack_forget()
+        self.xiaomi_frame.pack_forget()
 
         if provider == "openai":
             self.openai_frame.pack(fill="x", padx=10, pady=5)
@@ -227,6 +310,8 @@ class SettingsDialog(ctk.CTkToplevel):
             self.ollama_frame.pack(fill="x", padx=10, pady=5)
         elif provider == "deepseek":
             self.deepseek_frame.pack(fill="x", padx=10, pady=5)
+        elif provider == "xiaomi":
+            self.xiaomi_frame.pack(fill="x", padx=10, pady=5)
     
     def _on_save(self) -> None:
         """保存设置"""
@@ -241,6 +326,13 @@ class SettingsDialog(ctk.CTkToplevel):
         self.settings.llm.deepseek.api_key = self.deepseek_api_key_entry.get()
         self.settings.llm.deepseek.model = self.deepseek_model_entry.get()
         self.settings.llm.deepseek.base_url = self.deepseek_base_url_entry.get()
+        xiaomi_mode_label = self.xiaomi_mode_var.get()
+        self.settings.llm.xiaomi.api_mode = getattr(self, "_xiaomi_mode_map", {}).get(
+            xiaomi_mode_label, "token_plan"
+        )
+        self.settings.llm.xiaomi.api_key = self.xiaomi_api_key_entry.get().strip()
+        self.settings.llm.xiaomi.model = self.xiaomi_model_entry.get().strip()
+        self.settings.llm.xiaomi.base_url = self.xiaomi_base_url_entry.get().strip()
         self.settings.annotation.mode = self.mode_var.get()
         self.settings.annotation.detail_level = self.detail_var.get()
         self.settings.app.theme = self.theme_var.get()

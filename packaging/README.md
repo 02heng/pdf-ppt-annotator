@@ -26,16 +26,17 @@ python scripts/generate_app_icons.py
 
 **手动触发：** 仓库 → Actions → **Build Installers** → Run workflow
 
-**发布版本：**
+**发布版本：** 版本号以仓库根目录 `VERSION` 文件为准（当前 `0.1.0`）。
+
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag v0.1.0
+git push origin v0.1.0
 ```
 
 | 平台 | 产物 |
 |------|------|
-| Windows | `TOPDFAnnotator-Setup-1.0.0-win64.exe`、便携 zip |
-| macOS | `TOPDFAnnotator-1.0.0-mac.dmg` |
+| Windows | `TOPDFAnnotator-Setup-0.1.0-win64.exe`、便携 zip |
+| macOS | `TOPDFAnnotator-0.1.0-mac.dmg` |
 
 打 tag 会自动创建 GitHub Release；手动触发时在 Actions 运行记录的 **Artifacts** 下载。
 
@@ -64,7 +65,7 @@ git push origin v1.0.0
 | 类型 | 路径 |
 |------|------|
 | 便携版（文件夹） | `dist\TOPDFAnnotator\` |
-| 安装程序（需 Inno Setup） | `packaging\output\TOPDFAnnotator-Setup-1.0.0-win64.exe` |
+| 安装程序（需 Inno Setup） | `packaging\output\TOPDFAnnotator-Setup-*-win64.exe` |
 
 分发给用户：
 
@@ -85,7 +86,7 @@ chmod +x packaging/build_mac.sh
 | 类型 | 路径 |
 |------|------|
 | 应用包 | `dist/TOPDFAnnotator.app` |
-| 安装镜像 | `packaging/output/TOPDFAnnotator-1.0.0-mac.dmg` |
+| 安装镜像 | `packaging/output/TOPDFAnnotator-*-mac.dmg` |
 
 用户将 `.app` 或 DMG 中的程序拖入「应用程序」即可。
 

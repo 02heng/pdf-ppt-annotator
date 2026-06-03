@@ -1,8 +1,10 @@
 ; Inno Setup — Windows 安装包
 ; 需先运行 build_windows.ps1，再在本机安装 Inno Setup 6 后编译此脚本
 
+#ifndef MyAppVersion
+  #define MyAppVersion "0.1.0"
+#endif
 #define MyAppName "TO PDF 批注工具"
-#define MyAppVersion "1.0.0"
 #define MyAppPublisher "TO PDF"
 #define MyAppExeName "TOPDFAnnotator.exe"
 #define BuildDir "..\..\dist\TOPDFAnnotator"

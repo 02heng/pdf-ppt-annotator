@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from src.utils.file_utils import file_key
+from src.utils.preview_ink_store import ink_pages_from_json, ink_pages_to_json, normalize_ink_pages
 
 if TYPE_CHECKING:
     from src.ui.app import App, AnnotationMarker
@@ -38,22 +39,63 @@ def get_session_path() -> Path:
 
 
 def _marker_to_dict(marker: "AnnotationMarker") -> Dict[str, Any]:
-    return {
+    data = {
         "x": marker.x,
         "y": marker.y,
         "text": marker.text,
         "color": marker.color,
     }
+    if getattr(marker, "display_mode", "marker") != "marker":
+        data["display_mode"] = marker.display_mode
+    if getattr(marker, "original_text", ""):
+        data["original_text"] = marker.original_text
+    if getattr(marker, "placement", ""):
+        data["placement"] = marker.placement
+    if getattr(marker, "box_width", 0):
+        data["box_width"] = marker.box_width
+    if getattr(marker, "box_height", 0):
+        data["box_height"] = marker.box_height
+    if getattr(marker, "source_x", None) is not None:
+        data["source_x"] = marker.source_x
+    if getattr(marker, "source_y", None) is not None:
+        data["source_y"] = marker.source_y
+    if getattr(marker, "font_size", 0):
+        data["font_size"] = marker.font_size
+    if getattr(marker, "font_family", ""):
+        data["font_family"] = marker.font_family
+    orient = getattr(marker, "text_orientation", "") or ""
+    if orient and orient != "horizontal":
+        data["text_orientation"] = orient
+    if getattr(marker, "style_kind", ""):
+        data["style_kind"] = marker.style_kind
+    return data
 
 
 def _dict_to_marker(data: Dict[str, Any]) -> "AnnotationMarker":
     from src.ui.app import AnnotationMarker
+    from src.utils.block_font_size import GENERATED_INLINE_FONT_PT
+
+    original_text = str(data.get("original_text", ""))
+    font_size = int(data.get("font_size", 12))
+    if original_text.strip():
+        font_size = GENERATED_INLINE_FONT_PT
 
     return AnnotationMarker(
         x=int(data.get("x", 0)),
         y=int(data.get("y", 0)),
         text=str(data.get("text", "")),
         color=str(data.get("color", "#FF6B6B")),
+        display_mode=str(data.get("display_mode", "marker")),
+        original_text=original_text,
+        placement=str(data.get("placement", "right")),
+        box_width=int(data.get("box_width", 0)),
+        box_height=int(data.get("box_height", 0)),
+        source_x=data.get("source_x"),
+        source_y=data.get("source_y"),
+        font_size=font_size,
+        font_family=str(data.get("font_family", "")),
+        text_orientation=str(data.get("text_orientation", "horizontal")),
+        style_kind=str(data.get("style_kind", "inline")),
     )
 
 
@@ -91,6 +133,12 @@ def build_snapshot(app: "App") -> Dict[str, Any]:
         path: pages for path, pages in annotations.items() if path in existing_keys
     }
 
+    preview_ink = {
+        path: ink_pages_to_json(pages)
+        for path, pages in app.preview_ink_by_file.items()
+        if path in existing_keys and pages
+    }
+
     return {
         "version": PROJECT_VERSION,
         "saved_at": datetime.now(timezone.utc).isoformat(),
@@ -99,6 +147,7 @@ def build_snapshot(app: "App") -> Dict[str, Any]:
         "current_page": app.current_page,
         "zoom_level": app.zoom_level,
         "annotations_by_file": filtered_annotations,
+        "preview_ink_by_file": preview_ink,
         "project_path": app.project_file_path or "",
     }
 
@@ -187,8 +236,34 @@ def apply_snapshot(app: "App", data: Dict[str, Any], *, project_root: str = "") 
                     remapped_annotations[file_key(match)] = pages
         annotations_data = remapped_annotations
 
+    ink_data = data.get("preview_ink_by_file") or {}
+    remapped_ink: Dict[str, Dict[int, List[Dict[str, Any]]]] = {}
+    if project_root:
+        for old_key, pages in ink_data.items():
+            if os.path.isabs(old_key):
+                name = os.path.basename(old_key)
+                match = next((f for f in valid_files if os.path.basename(f) == name), None)
+                fk = file_key(match or old_key)
+            else:
+                fk = file_key(os.path.normpath(os.path.join(project_root, old_key)))
+            remapped_ink[fk] = normalize_ink_pages(pages)
+    else:
+        valid_keys = {file_key(f): f for f in valid_files}
+        for old_key, pages in ink_data.items():
+            fk = file_key(old_key)
+            if fk in valid_keys:
+                remapped_ink[fk] = normalize_ink_pages(pages)
+            else:
+                match = next(
+                    (f for f in valid_files if os.path.basename(f) == os.path.basename(old_key)),
+                    None,
+                )
+                if match:
+                    remapped_ink[file_key(match)] = normalize_ink_pages(pages)
+
     app.selected_files = valid_files
     app.annotations_by_file = _annotations_from_json(annotations_data)
+    app.preview_ink_by_file = remapped_ink
     app._rekey_annotations_by_file()
 
     index = data.get("current_file_index", 0)

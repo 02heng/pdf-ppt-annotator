@@ -46,7 +46,7 @@ def test_settings_model():
     settings = Settings()
     
     assert settings.llm.provider == "openai"
-    assert settings.annotation.mode == "sidebar"
+    assert settings.annotation.mode == "overlay"
     assert settings.app.language == "zh-CN"
 
 def test_document_model():

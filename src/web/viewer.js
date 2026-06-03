@@ -38,6 +38,9 @@ let currentPage = 0;
 let totalPages = 0;
 let renderTask = null;
 const BASE_VIEWPORT_SCALE = 1.5;
+const VIEW_ZOOM_MIN = BASE_VIEWPORT_SCALE * 0.5;
+const VIEW_ZOOM_MAX = BASE_VIEWPORT_SCALE * 3;
+const VIEW_ZOOM_STEP = 1.2;
 let viewportScale = BASE_VIEWPORT_SCALE;
 let basePageWidth = 0;
 let basePageHeight = 0;
@@ -48,16 +51,21 @@ let activeMarker = null;
 let activeMarkerIndex = null;
 let lastPdfToken = "";
 let lastStateFingerprint = "";
+let lastInkFingerprint = "";
 
 /* —— 演示工具 —— */
 let currentTool = "pointer";
 let currentColor = "#ef4444";
 let inkByPage = {};
+const inkUndoStack = [];
+const INK_UNDO_MAX = 50;
 let isDrawing = false;
 let currentStroke = null;
 let lastInkPointer = null;
 let inkDrawAnimId = null;
 const INK_SAMPLE_PX = 2.5;
+/** 与 src/utils/ink_style.py HIGHLIGHTER_OPACITY 保持一致 */
+const HIGHLIGHTER_OPACITY = 0.18;
 let laserTrail = [];
 let laserAnimId = null;
 let lastLaserPos = null;
@@ -76,11 +84,16 @@ let magnifyOrigin = {
   clientY: 0,
 };
 const MAGNIFY_FACTOR = 2;
-const MAGNIFY_ZOOM_IN_MS = 560;
-const MAGNIFY_ZOOM_OUT_MS = 560;
+/** 按住放大：CSS 缓动时长（须与 viewer.css 中 transition 一致）；缩小仍为立即还原 */
+const MAGNIFY_ZOOM_IN_MS = 220;
+const MAGNIFY_ZOOM_OUT_MS = 0;
 let magnifyHiResReady = false;
 let magnifyTransitionHandler = null;
 let magnifyEndInProgress = false;
+/** 高清渲染完成但 CSS 放大未结束时，暂存平移参数 */
+let pendingMagnifyPan = null;
+let inkSyncTimer = null;
+const INK_SYNC_DELAY_MS = 450;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -118,6 +131,10 @@ function preserveMagnifyAnchorOnScreen() {
   if (Math.abs(dy) > 0.5) {
     viewerWrap.scrollTop = Math.max(0, viewerWrap.scrollTop + dy);
   }
+  const maxLeft = Math.max(0, viewerWrap.scrollWidth - viewerWrap.clientWidth);
+  const maxTop = Math.max(0, viewerWrap.scrollHeight - viewerWrap.clientHeight);
+  viewerWrap.scrollLeft = Math.min(viewerWrap.scrollLeft, maxLeft);
+  viewerWrap.scrollTop = Math.min(viewerWrap.scrollTop, maxTop);
 }
 
 function applyMagnifyPan(nx, ny, currentW, currentH) {
@@ -127,12 +144,26 @@ function applyMagnifyPan(nx, ny, currentW, currentH) {
   pageContainer.style.transform = `translate(${tx}px, ${ty}px)`;
 }
 
+function applyMagnifySharpFinish() {
+  clearMagnifyTransitionListener();
+  pageContainer.classList.remove("page-magnify-smooth");
+  pageContainer.classList.add("page-magnify-sharp");
+  if (pendingMagnifyPan) {
+    const { nx, ny, w, h } = pendingMagnifyPan;
+    applyMagnifyPan(nx, ny, w, h);
+    setMagnifyOrigin(nx, ny, w, h);
+    pendingMagnifyPan = null;
+  }
+  pageContainer.style.transform = "scale(1)";
+}
+
 function resetMagnifyLayout() {
   clearMagnifyTransitionListener();
   pageContainer.style.transform = "";
   pageContainer.style.transformOrigin = "";
   pageContainer.classList.remove("page-magnify-smooth", "page-magnify-sharp");
   magnifyHiResReady = false;
+  pendingMagnifyPan = null;
   if (basePageWidth && basePageHeight) {
     pageViewport.style.width = `${basePageWidth}px`;
     pageViewport.style.height = `${basePageHeight}px`;
@@ -184,22 +215,18 @@ async function runCssMagnify(targetScale) {
   await waitTransformTransition(zoomIn ? MAGNIFY_ZOOM_IN_MS : MAGNIFY_ZOOM_OUT_MS);
 }
 
-/** 高清态丝滑缩小：保持平移不变、仅缩放，避免 translate 归零导致页面左偏裁切 */
-async function runCssMagnifyOutFromHiRes() {
-  const { w, h } = magnifyContentSize();
-  const ox = magnifyOrigin.nx * w;
-  const oy = magnifyOrigin.ny * h;
-  const { tx, ty } = getHiResPanTranslate();
-  const inv = 1 / MAGNIFY_FACTOR;
-  pageContainer.classList.remove("page-magnify-sharp");
-  pageContainer.classList.add("page-magnify-smooth");
-  setMagnifyOrigin(magnifyOrigin.nx, magnifyOrigin.ny, w, h);
-  pageContainer.style.transform = `translate(${tx}px, ${ty}px) scale(1)`;
-  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-  const txEnd = tx + ox * (1 - inv);
-  const tyEnd = ty + oy * (1 - inv);
-  pageContainer.style.transform = `translate(${txEnd}px, ${tyEnd}px) scale(${inv})`;
-  await waitTransformTransition(MAGNIFY_ZOOM_OUT_MS);
+/** 松开立即还原到基准清晰度（无缩小动画） */
+async function restoreMagnifyInstant() {
+  clearMagnifyTransitionListener();
+  magnifyHiResReady = false;
+  magnifyAnimating = false;
+  resetMagnifyLayout();
+  await renderPage(currentPage, {
+    clearActive: false,
+    scale: BASE_VIEWPORT_SCALE,
+    panOrigin: magnifyOrigin,
+  });
+  preserveMagnifyAnchorOnScreen();
 }
 
 /** 将屏幕坐标映射到与 canvas 像素一致的页面坐标（修复 CSS 缩放导致的笔触偏移） */
@@ -239,10 +266,98 @@ function loadInkStore() {
   }
 }
 
+async function loadInkFromServer() {
+  try {
+    const res = await fetch("/api/ink");
+    if (!res.ok) return false;
+    const data = await res.json();
+    if (data.pages && typeof data.pages === "object") {
+      inkByPage = data.pages;
+      saveInkStore();
+      return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
 function saveInkStore() {
   try {
     sessionStorage.setItem(inkStorageKey(), JSON.stringify(inkByPage));
   } catch (_) {}
+}
+
+function inkPagesPayload() {
+  const pages = {};
+  for (const [key, strokes] of Object.entries(inkByPage)) {
+    const kept = (strokes || [])
+      .filter((s) => s.tool === "pen" || s.tool === "highlighter")
+      .map((s) => {
+        const pw = pageWidth || basePageWidth || 1;
+        return {
+          tool: s.tool,
+          color: s.color,
+          width: s.width,
+          width_norm: s.width_norm ?? s.width / pw,
+          points: s.points,
+        };
+      });
+    if (kept.length) pages[key] = kept;
+  }
+  return pages;
+}
+
+function scheduleInkSync() {
+  clearTimeout(inkSyncTimer);
+  inkSyncTimer = setTimeout(() => {
+    void pushInkToServer();
+  }, INK_SYNC_DELAY_MS);
+}
+
+async function pushInkToServer() {
+  try {
+    await fetch("/api/ink", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pages: inkPagesPayload() }),
+    });
+  } catch (_) {}
+}
+
+async function saveInkToDocument() {
+  await pushInkToServer();
+  const pages = inkPagesPayload();
+  const strokeCount = Object.values(pages).reduce((n, arr) => n + arr.length, 0);
+  if (strokeCount < 1) {
+    statusEl.textContent = "没有可保存的笔记，请先用笔或荧光笔绘制";
+    return;
+  }
+  let overwrite = false;
+  try {
+    overwrite = window.confirm(
+      "确定保存笔记？\n\n· 选「确定」：覆盖原 PDF 文件（仅原生 PDF）\n· 选「取消」：在同目录另存为新 PDF\n\n笔迹与现有中文批注将一并写入。激光笔不会保存。",
+    );
+  } catch (_) {
+    overwrite = false;
+  }
+  statusEl.textContent = "正在保存笔记到 PDF...";
+  try {
+    const res = await fetch("/api/ink/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pages, overwrite }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || "保存失败");
+    }
+    statusEl.textContent = `笔记已保存：${data.path || "完成"}`;
+    if (data.path) {
+      lastPdfToken = "";
+      await refresh(true);
+    }
+  } catch (err) {
+    statusEl.textContent = `保存失败: ${err.message}`;
+  }
 }
 
 function getPageStrokes(pageIndex) {
@@ -273,7 +388,7 @@ function setTool(tool) {
     inkCanvas.classList.add("interactive");
   }
   const hints = {
-    pointer: "指针：按住丝滑放大，松开丝滑缩小还原",
+    pointer: "指针：点击查看批注；可用工具栏 +/− 或 Ctrl+滚轮缩放",
     laser: "激光笔：柔和渐变拖尾，松开后较快淡出",
     pen: "笔：在页面上手绘，墨迹会保留",
     highlighter: "荧光笔：平滑宽笔触（自动补点）",
@@ -297,28 +412,33 @@ async function startMagnify(clientX, clientY) {
   magnifyActive = true;
   magnifyHiResReady = false;
 
-  if (viewportScale > BASE_VIEWPORT_SCALE * 1.02) {
+  if (Math.abs(viewportScale - BASE_VIEWPORT_SCALE) > 0.02) {
     await renderPage(currentPage, { clearActive: false, scale: BASE_VIEWPORT_SCALE });
+    updateZoomLabel();
   }
 
   setMagnifyOrigin(magnifyOrigin.nx, magnifyOrigin.ny, basePageWidth, basePageHeight);
-  await runCssMagnify(MAGNIFY_FACTOR);
+  pendingMagnifyPan = null;
+
+  const hiResScale = BASE_VIEWPORT_SCALE * MAGNIFY_FACTOR;
+  const hiResPromise = renderPage(currentPage, {
+    clearActive: false,
+    scale: hiResScale,
+    panOrigin: magnifyOrigin,
+    deferPan: true,
+  });
+  const cssPromise =
+    MAGNIFY_ZOOM_IN_MS > 0 ? runCssMagnify(MAGNIFY_FACTOR) : Promise.resolve();
+
+  await Promise.all([cssPromise, hiResPromise]);
 
   if (!magnifyActive) {
     magnifyAnimating = false;
-    pageContainer.classList.remove("page-magnify-smooth");
-    pageContainer.style.transform = "";
+    resetMagnifyLayout();
     return;
   }
 
-  pageContainer.classList.remove("page-magnify-smooth");
-  pageContainer.classList.add("page-magnify-sharp");
-  pageContainer.style.transform = "scale(1)";
-  await renderPage(currentPage, {
-    clearActive: false,
-    scale: BASE_VIEWPORT_SCALE * MAGNIFY_FACTOR,
-    panOrigin: magnifyOrigin,
-  });
+  applyMagnifySharpFinish();
   magnifyHiResReady = true;
   magnifyAnimating = false;
 }
@@ -330,64 +450,7 @@ async function endMagnify() {
   magnifyActive = false;
 
   try {
-    if (magnifyAnimating) {
-      clearMagnifyTransitionListener();
-      pageContainer.classList.remove("page-magnify-smooth");
-      try {
-        if (magnifyHiResReady) {
-          await runCssMagnifyOutFromHiRes();
-        } else {
-          await runCssMagnify(1);
-        }
-      } catch (_) {
-        pageContainer.style.transform = "";
-      }
-      magnifyAnimating = false;
-      magnifyHiResReady = false;
-      await renderPage(currentPage, {
-        clearActive: false,
-        scale: BASE_VIEWPORT_SCALE,
-        panOrigin: magnifyOrigin,
-      });
-      resetMagnifyLayout();
-      preserveMagnifyAnchorOnScreen();
-      return;
-    }
-
-    magnifyAnimating = true;
-    try {
-      if (magnifyHiResReady) {
-        await runCssMagnifyOutFromHiRes();
-        magnifyHiResReady = false;
-        await renderPage(currentPage, {
-          clearActive: false,
-          scale: BASE_VIEWPORT_SCALE,
-          panOrigin: magnifyOrigin,
-        });
-      } else if (viewportScale <= BASE_VIEWPORT_SCALE * 1.02) {
-        await runCssMagnify(1);
-      } else {
-        setMagnifyOrigin(
-          magnifyOrigin.nx,
-          magnifyOrigin.ny,
-          basePageWidth,
-          basePageHeight,
-        );
-        pageContainer.classList.add("page-magnify-smooth");
-        pageContainer.style.transform = `scale(${MAGNIFY_FACTOR})`;
-        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-        await runCssMagnify(1);
-        await renderPage(currentPage, {
-          clearActive: false,
-          scale: BASE_VIEWPORT_SCALE,
-          panOrigin: magnifyOrigin,
-        });
-      }
-    } finally {
-      resetMagnifyLayout();
-      preserveMagnifyAnchorOnScreen();
-      magnifyAnimating = false;
-    }
+    await restoreMagnifyInstant();
   } finally {
     magnifyEndInProgress = false;
   }
@@ -426,12 +489,8 @@ function drawSmoothStroke(stroke, context) {
   c.lineJoin = "round";
   c.strokeStyle = stroke.color;
   const isHi = stroke.tool === "highlighter";
-  c.globalAlpha = isHi ? 0.42 : 1;
+  c.globalAlpha = isHi ? HIGHLIGHTER_OPACITY : 1;
   c.lineWidth = stroke.width;
-  if (isHi) {
-    c.shadowColor = stroke.color;
-    c.shadowBlur = Math.max(6, stroke.width * 0.25);
-  }
 
   if (pixelPts.length === 2) {
     c.beginPath();
@@ -503,12 +562,38 @@ function eraseAt(nx, ny) {
     if (hit) strokes.splice(i, 1);
   }
   saveInkStore();
+  scheduleInkSync();
   redrawInk();
 }
 
+function cloneInkByPage() {
+  return JSON.parse(JSON.stringify(inkByPage));
+}
+
+function pushInkUndo() {
+  inkUndoStack.push(cloneInkByPage());
+  if (inkUndoStack.length > INK_UNDO_MAX) {
+    inkUndoStack.shift();
+  }
+}
+
+function undoInkAction() {
+  if (!inkUndoStack.length) {
+    statusEl.textContent = "没有可撤销的笔迹操作";
+    return;
+  }
+  inkByPage = inkUndoStack.pop();
+  saveInkStore();
+  scheduleInkSync();
+  redrawInk();
+  statusEl.textContent = "已撤销笔迹（Ctrl+Z）";
+}
+
 function clearPageInk() {
+  pushInkUndo();
   inkByPage[String(currentPage)] = [];
   saveInkStore();
+  scheduleInkSync();
   redrawInk();
 }
 
@@ -723,6 +808,29 @@ function initToolsUi() {
     document.getElementById("btn-tools").classList.toggle("active");
   });
 
+  const bindSaveInk = (id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("click", () => void saveInkToDocument());
+  };
+  bindSaveInk("btn-save-ink");
+  bindSaveInk("btn-save-ink-panel");
+
+  document.getElementById("btn-zoom-in")?.addEventListener("click", () => void zoomIn());
+  document.getElementById("btn-zoom-out")?.addEventListener("click", () => void zoomOut());
+  document.getElementById("btn-zoom-reset")?.addEventListener("click", () => void zoomReset());
+
+  viewerWrap.addEventListener(
+    "wheel",
+    (e) => {
+      if (!pdfDoc) return;
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      if (e.deltaY < 0) void zoomIn();
+      else void zoomOut();
+    },
+    { passive: false },
+  );
+
   document.querySelectorAll(".tool-item[data-tool]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const tool = btn.dataset.tool;
@@ -737,31 +845,6 @@ function initToolsUi() {
         stopLaserAnim();
       }
     });
-  });
-
-  pageContainer.addEventListener("pointerdown", (e) => {
-    if (currentTool !== "pointer") return;
-    if (e.target.closest(".annot-marker")) return;
-    if (e.button !== 0) return;
-    startMagnify(e.clientX, e.clientY);
-    try {
-      pageContainer.setPointerCapture(e.pointerId);
-    } catch (_) {}
-  });
-
-  const onMagnifyEnd = (e) => {
-    void endMagnify();
-    try {
-      if (e && e.pointerId != null) pageContainer.releasePointerCapture(e.pointerId);
-    } catch (_) {}
-  };
-
-  pageContainer.addEventListener("pointerup", onMagnifyEnd);
-  pageContainer.addEventListener("pointercancel", onMagnifyEnd);
-  document.addEventListener("pointerup", () => {
-    if (magnifyActive || magnifyAnimating || magnifyHiResReady) {
-      void endMagnify();
-    }
   });
 
   pageContainer.addEventListener("pointermove", (e) => {
@@ -781,10 +864,12 @@ function initToolsUi() {
     inkCanvas.setPointerCapture(e.pointerId);
     const coords = getPageCoords(e.clientX, e.clientY);
     if (currentTool === "eraser") {
+      pushInkUndo();
       isDrawing = true;
       eraseAt(coords.nx, coords.ny);
       return;
     }
+    pushInkUndo();
     isDrawing = true;
     currentStroke = {
       tool: currentTool,
@@ -816,8 +901,11 @@ function initToolsUi() {
     if (!isDrawing) return;
     isDrawing = false;
     if (currentStroke && currentStroke.points.length > 1) {
+      const pw = pageWidth || basePageWidth || 1;
+      currentStroke.width_norm = currentStroke.width / pw;
       getPageStrokes(currentPage).push(currentStroke);
       saveInkStore();
+      scheduleInkSync();
     }
     currentStroke = null;
     redrawInk();
@@ -848,7 +936,19 @@ function stateFingerprint(state) {
     current_page: state.current_page || 0,
     total_pages: state.total_pages || 0,
     annotations: state.annotations || {},
+    ink_pages: state.ink_pages || {},
   });
+}
+
+function inkFingerprint(state) {
+  return JSON.stringify(state.ink_pages || {});
+}
+
+function applyServerInkPages(inkPages) {
+  if (!inkPages || typeof inkPages !== "object") return;
+  inkByPage = inkPages;
+  saveInkStore();
+  if (pdfDoc) redrawInk();
 }
 
 function clearLayer() {
@@ -906,12 +1006,73 @@ function scheduleAnnotPopupLayout(markerEl, popupEl, item) {
   });
 }
 
+const visibleAreaGuide = document.getElementById("visible-area-guide");
+
+/** 预览窗口内当前可见区域（需滚动才能看到的在虚线外） */
+function updateVisibleAreaGuide() {
+  if (!visibleAreaGuide || !viewerWrap || !pageViewport) return;
+  const wr = viewerWrap.getBoundingClientRect();
+  const pr = pageViewport.getBoundingClientRect();
+  const left = Math.max(wr.left, pr.left);
+  const top = Math.max(wr.top, pr.top);
+  const right = Math.min(wr.right, pr.right);
+  const bottom = Math.min(wr.bottom, pr.bottom);
+  const w = right - left;
+  const h = bottom - top;
+  const pageW = pageWidth || pr.width;
+  const pageH = pageHeight || pr.height;
+  const needsGuide =
+    w > 0 &&
+    h > 0 &&
+    (w < pageW - 3 || h < pageH - 3 || viewerWrap.scrollWidth > viewerWrap.clientWidth + 2);
+  if (!needsGuide) {
+    visibleAreaGuide.hidden = true;
+    return;
+  }
+  visibleAreaGuide.hidden = false;
+  visibleAreaGuide.style.left = `${left - pr.left}px`;
+  visibleAreaGuide.style.top = `${top - pr.top}px`;
+  visibleAreaGuide.style.width = `${w}px`;
+  visibleAreaGuide.style.height = `${h}px`;
+}
+
 function renderMarkers(pageIndex, restoreIndex = null) {
   const keepIndex = restoreIndex ?? activeMarkerIndex;
   clearLayer();
 
   const items = annotationsByPage[String(pageIndex)] || [];
   items.forEach((item) => {
+    if (item.display_mode === "inline") {
+      const inline = document.createElement("div");
+      inline.className = "annot-inline";
+      inline.dataset.index = String(item.index);
+      inline.style.color = item.color || "#7c2d12";
+      inline.style.fontSize = `${(item.font_size || 10) * viewportScale}px`;
+      inline.style.fontWeight = "600";
+      inline.style.left = `${item.x * viewportScale}px`;
+      inline.style.top = `${item.y * viewportScale}px`;
+      if (item.placement === "above") {
+        inline.style.transform = "translate(-2px, -100%)";
+        inline.style.transformOrigin = "left bottom";
+      } else if (item.placement === "right") {
+        inline.style.transformOrigin = "left center";
+      }
+      if (item.placement === "below" && item.box_width) {
+        inline.style.maxWidth = `${item.box_width * viewportScale}px`;
+      }
+      if (item.placement === "right" && item.box_width) {
+        inline.style.maxWidth = `${Math.max(120, (layer.clientWidth || 800) - item.x * viewportScale)}px`;
+      }
+      inline.textContent = item.text || "";
+      if (item.text_orientation === "vertical") {
+        inline.classList.add("vertical");
+        inline.style.writingMode = "vertical-rl";
+        inline.style.textOrientation = "upright";
+      }
+      layer.appendChild(inline);
+      return;
+    }
+
     const marker = document.createElement("div");
     marker.className = "annot-marker";
     marker.dataset.index = String(item.index);
@@ -968,25 +1129,92 @@ function renderMarkers(pageIndex, restoreIndex = null) {
   }
 }
 
+function resetViewerScroll() {
+  if (!viewerWrap) return;
+  viewerWrap.scrollTop = 0;
+  viewerWrap.scrollLeft = 0;
+}
+
+function clampViewerScale(scale) {
+  return Math.max(VIEW_ZOOM_MIN, Math.min(VIEW_ZOOM_MAX, scale));
+}
+
+function zoomPercentLabel(scale = viewportScale) {
+  return `${Math.round((scale / BASE_VIEWPORT_SCALE) * 100)}%`;
+}
+
+function updateZoomLabel() {
+  const el = document.getElementById("zoom-label");
+  if (el) el.textContent = zoomPercentLabel();
+}
+
+async function applyViewerZoom(targetScale, { keepScrollAnchor = true } = {}) {
+  if (!pdfDoc) return;
+  const next = clampViewerScale(targetScale);
+  if (Math.abs(next - viewportScale) < 0.001) return;
+
+  if (magnifyActive || magnifyAnimating || magnifyHiResReady) {
+    magnifyActive = false;
+    resetMagnifyLayout();
+  }
+
+  let ratioX = 0.5;
+  let ratioY = 0.5;
+  if (keepScrollAnchor && viewerWrap && basePageWidth) {
+    const maxLeft = Math.max(1, viewerWrap.scrollWidth - viewerWrap.clientWidth);
+    const maxTop = Math.max(1, viewerWrap.scrollHeight - viewerWrap.clientHeight);
+    ratioX = viewerWrap.scrollLeft / maxLeft;
+    ratioY = viewerWrap.scrollTop / maxTop;
+  }
+
+  viewportScale = next;
+  await renderPage(currentPage, { clearActive: false, scale: next });
+  updateZoomLabel();
+
+  if (keepScrollAnchor && viewerWrap) {
+    const maxLeft = Math.max(0, viewerWrap.scrollWidth - viewerWrap.clientWidth);
+    const maxTop = Math.max(0, viewerWrap.scrollHeight - viewerWrap.clientHeight);
+    viewerWrap.scrollLeft = maxLeft * ratioX;
+    viewerWrap.scrollTop = maxTop * ratioY;
+  }
+  requestAnimationFrame(updateVisibleAreaGuide);
+}
+
+async function zoomIn() {
+  await applyViewerZoom(viewportScale * VIEW_ZOOM_STEP);
+}
+
+async function zoomOut() {
+  await applyViewerZoom(viewportScale / VIEW_ZOOM_STEP);
+}
+
+async function zoomReset() {
+  await applyViewerZoom(BASE_VIEWPORT_SCALE, { keepScrollAnchor: false });
+  resetViewerScroll();
+}
+
 async function renderPage(
   pageNum,
-  { clearActive = true, scale = null, panOrigin = null } = {},
+  { clearActive = true, scale = null, panOrigin = null, deferPan = false } = {},
 ) {
   if (!pdfDoc) return;
+  const prevPage = currentPage;
   if (renderTask) {
     try {
       await renderTask.cancel();
     } catch (_) {}
   }
 
-  if (clearActive && pageNum !== currentPage) {
+  const pageChanged = pageNum !== prevPage;
+  if (clearActive && pageChanged) {
     activeMarkerIndex = null;
     magnifyActive = false;
     resetMagnifyLayout();
+    resetViewerScroll();
   }
 
   currentPage = pageNum;
-  const effectiveScale = scale != null ? scale : BASE_VIEWPORT_SCALE;
+  const effectiveScale = scale != null ? scale : viewportScale;
   viewportScale = effectiveScale;
 
   const page = await pdfDoc.getPage(pageNum + 1);
@@ -1019,13 +1247,33 @@ async function renderPage(
   } else if (panOrigin) {
     pageViewport.style.width = `${basePageWidth}px`;
     pageViewport.style.height = `${basePageHeight}px`;
-    applyMagnifyPan(panOrigin.nx, panOrigin.ny, viewport.width, viewport.height);
-    setMagnifyOrigin(panOrigin.nx, panOrigin.ny, viewport.width, viewport.height);
+    pageWidth = viewport.width;
+    pageHeight = viewport.height;
+    if (deferPan) {
+      pendingMagnifyPan = {
+        nx: panOrigin.nx,
+        ny: panOrigin.ny,
+        w: viewport.width,
+        h: viewport.height,
+      };
+    } else {
+      applyMagnifyPan(panOrigin.nx, panOrigin.ny, viewport.width, viewport.height);
+      setMagnifyOrigin(panOrigin.nx, panOrigin.ny, viewport.width, viewport.height);
+    }
+  } else {
+    pageWidth = viewport.width;
+    pageHeight = viewport.height;
+    pageViewport.style.width = `${viewport.width}px`;
+    pageViewport.style.height = `${viewport.height}px`;
+    pageContainer.style.transform = "";
+    pageContainer.classList.remove("page-magnify-smooth", "page-magnify-sharp");
   }
 
   renderMarkers(pageNum, clearActive ? null : activeMarkerIndex);
   redrawInk();
   pageLabel.textContent = `${pageNum + 1} / ${totalPages}`;
+  updateZoomLabel();
+  requestAnimationFrame(updateVisibleAreaGuide);
 }
 
 async function updateMarkersOnly() {
@@ -1036,6 +1284,13 @@ async function updateMarkersOnly() {
 async function refresh(force = false) {
   try {
     const state = await fetchState();
+    const inkFp = inkFingerprint(state);
+    const inkChanged = force || inkFp !== lastInkFingerprint;
+    if (inkChanged) {
+      lastInkFingerprint = inkFp;
+      applyServerInkPages(state.ink_pages);
+    }
+
     const fingerprint = stateFingerprint(state);
 
     if (!force && fingerprint === lastStateFingerprint) {
@@ -1055,7 +1310,8 @@ async function refresh(force = false) {
       pdfDoc = null;
       activeMarkerIndex = null;
       lastPdfToken = newToken;
-      loadInkStore();
+      const fromServer = await loadInkFromServer();
+      if (!fromServer) loadInkStore();
     } else if (newToken) {
       lastPdfToken = newToken;
     }
@@ -1063,7 +1319,15 @@ async function refresh(force = false) {
     if (!pdfDoc && state.pdf_available) {
       await loadPdf();
       totalPages = pdfDoc.numPages;
-      if (newToken && !pdfTokenChanged) loadInkStore();
+      if (pdfTokenChanged) {
+        const fromServer = await loadInkFromServer();
+        if (!fromServer) loadInkStore();
+      } else if (newToken) {
+        loadInkStore();
+      }
+    } else if (pdfTokenChanged) {
+      lastInkFingerprint = inkFingerprint(state);
+      applyServerInkPages(state.ink_pages);
     }
 
     if (!pdfDoc) {
@@ -1085,7 +1349,7 @@ async function refresh(force = false) {
     }
 
     if (currentTool === "pointer") {
-      statusEl.textContent = "指针：按住丝滑放大，松开丝滑缩小；可切换激光笔/绘图";
+      statusEl.textContent = "指针：点击查看批注；工具栏 +/− 或 Ctrl+滚轮缩放；可切换激光笔/绘图";
     }
   } catch (err) {
     statusEl.textContent = `加载失败: ${err.message}`;
@@ -1120,6 +1384,23 @@ viewerWrap.addEventListener("click", (e) => {
   closeActiveMarker();
 });
 
+if (viewerWrap) {
+  viewerWrap.addEventListener("scroll", () => requestAnimationFrame(updateVisibleAreaGuide), {
+    passive: true,
+  });
+}
+window.addEventListener("resize", () => requestAnimationFrame(updateVisibleAreaGuide));
+
+document.addEventListener("keydown", (e) => {
+  const tag = (e.target && e.target.tagName) || "";
+  if (tag === "INPUT" || tag === "TEXTAREA") return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey) {
+    e.preventDefault();
+    undoInkAction();
+  }
+});
+
 initToolsUi();
+updateZoomLabel();
 refresh(true);
-setInterval(() => refresh(false), 2000);
+setInterval(() => refresh(false), 1000);

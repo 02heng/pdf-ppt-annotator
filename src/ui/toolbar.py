@@ -89,7 +89,12 @@ class Toolbar(GradientToolbar):
     def _init_toolbar_state_vars(self) -> None:
         """与配置文件同步（无顶栏分段控件时使用）"""
         mode_map = {"overlay": "覆盖", "sidebar": "侧边栏"}
-        llm_map = {"openai": "OpenAI", "ollama": "Ollama", "deepseek": "DeepSeek"}
+        llm_map = {
+            "openai": "OpenAI",
+            "ollama": "Ollama",
+            "deepseek": "DeepSeek",
+            "xiaomi": "小米 MiMo",
+        }
         mode = getattr(self.app.settings.annotation, "mode", "sidebar")
         provider = getattr(self.app.settings.llm, "provider", "openai")
         self.mode_var = ctk.StringVar(value=mode_map.get(mode, "侧边栏"))
@@ -216,6 +221,14 @@ class Toolbar(GradientToolbar):
         if provider == "deepseek" and not self.app.settings.llm.deepseek.api_key:
             show_warning(self.app, "警告", "请先在设置中配置 DeepSeek API Key")
             return False
+        if provider == "xiaomi" and not self.app.settings.llm.xiaomi.api_key:
+            show_warning(
+                self.app,
+                "警告",
+                "请先在设置中配置小米 MiMo API Key\n"
+                "（Token Plan 订阅：在 plan-manage 页复制 tp- 密钥）",
+            )
+            return False
 
         if not self.app.pdf_doc:
             show_warning(self.app, "警告", "请先导入 PDF 或 PPT 文件")
@@ -227,6 +240,29 @@ class Toolbar(GradientToolbar):
         state = "normal" if enabled else "disabled"
         self.annotate_btn.configure(state=state)
         self.annotate_all_btn.configure(state=state)
+
+    def _uses_inline_translation(self) -> bool:
+        return self.app.settings.annotation.mode == "overlay"
+
+    def _apply_inline_markers_to_page(
+        self,
+        page_num: int,
+        markers,
+        *,
+        replace: bool = False,
+    ) -> int:
+        from src.services.inline_translation_service import dedupe_inline_markers
+
+        markers = dedupe_inline_markers(list(markers))
+        if replace:
+            self.app._record_undo_before()
+            self.app.annotations[page_num] = markers
+        else:
+            existing = list(self.app.annotations.get(page_num, []))
+            existing.extend(markers)
+            self.app.annotations[page_num] = dedupe_inline_markers(existing)
+        self.app._persist_current_file_annotations()
+        return len(markers)
 
     def _apply_annotations_to_page(
         self,
@@ -244,6 +280,7 @@ class Toolbar(GradientToolbar):
         marker_size = AnnotationMarker.MARKER_SIZE
 
         if replace:
+            self.app._record_undo_before()
             existing_markers = []
         else:
             existing_markers = list(self.app.annotations.get(page_num, []))
@@ -323,23 +360,51 @@ class Toolbar(GradientToolbar):
 
         def worker():
             try:
-                from src.services.annotation_service import AnnotationService
+                if self._uses_inline_translation():
+                    from src.services.inline_translation_service import (
+                        generate_inline_markers_for_page,
+                    )
 
-                annotation_service = AnnotationService(self.app.settings.llm)
-                source_path = self.app.selected_files[self.app.current_file_index]
-                pdf_path = self.app.get_render_pdf_path(source_path)
+                    self.app.after(
+                        0,
+                        lambda: self.app.update_status(
+                            f"正在识别并翻译第 {current_page + 1} 页（含图表 OCR）..."
+                        ),
+                    )
+                    markers = generate_inline_markers_for_page(
+                        self.app,
+                        current_page,
+                        self.app.settings.llm,
+                    )
+                    annotations = None
+                else:
+                    from src.services.annotation_service import AnnotationService
 
-                annotations = self._annotate_one_page(
-                    annotation_service,
-                    current_page,
-                    source_path,
-                    pdf_path,
-                )
+                    annotation_service = AnnotationService(self.app.settings.llm)
+                    source_path = self.app.selected_files[self.app.current_file_index]
+                    pdf_path = self.app.get_render_pdf_path(source_path)
+                    annotations = self._annotate_one_page(
+                        annotation_service,
+                        current_page,
+                        source_path,
+                        pdf_path,
+                    )
+                    markers = None
 
                 def finish():
                     self._annotating = False
                     self._set_annotate_buttons_state(True)
-                    if annotations:
+                    if markers:
+                        count = self._apply_inline_markers_to_page(
+                            current_page, markers, replace=True
+                        )
+                        self.app._show_annotations()
+                        self.app._update_annotation_list()
+                        self.app.update_status(
+                            f"第 {current_page + 1} 页原位翻译完成，共 {count} 处"
+                        )
+                        self.app.sync_web_preview()
+                    elif annotations:
                         count = self._apply_annotations_to_page(current_page, annotations)
                         self.app._show_annotations()
                         self.app._update_annotation_list()
@@ -424,13 +489,11 @@ class Toolbar(GradientToolbar):
 
         def worker():
             try:
-                from src.services.annotation_service import AnnotationService
-
-                annotation_service = AnnotationService(self.app.settings.llm)
                 source_path = self.app.selected_files[self.app.current_file_index]
                 pdf_path = self.app.get_render_pdf_path(source_path)
                 pages_with_ann = 0
                 total_ann = 0
+                inline_mode = self._uses_inline_translation()
 
                 def update_progress(current: int, message: str) -> None:
                     self.app.after(
@@ -440,87 +503,136 @@ class Toolbar(GradientToolbar):
                         ),
                     )
 
-                update_progress(0, "正在将所选页转为图片...")
-                self.app.after(
-                    0,
-                    lambda: self.app.update_status("正在渲染所选页面为图片..."),
-                )
+                annotation_service = None
+                images_by_page = {}
+                document_context = ""
 
-                def on_render(current: int, render_total: int) -> None:
-                    update_progress(
+                if inline_mode:
+                    from src.services.inline_translation_service import (
+                        generate_inline_markers_for_page,
+                    )
+
+                    self.app.after(
                         0,
-                        f"正在渲染 {current}/{render_total} 页图片...",
+                        lambda: self.app.update_status(
+                            f"逐页原位翻译（第 {start_page_1}–{end_page_1} 页）..."
+                        ),
+                    )
+                    for offset, page_num in enumerate(range(start_idx, end_idx + 1)):
+                        done = offset + 1
+                        update_progress(
+                            done,
+                            f"翻译第 {page_num + 1} 页（{done}/{job_total}）...",
+                        )
+                        markers = generate_inline_markers_for_page(
+                            self.app,
+                            page_num,
+                            self.app.settings.llm,
+                        )
+                        if markers:
+                            pages_with_ann += 1
+                            total_ann += len(markers)
+
+                            def apply_inline(p=page_num, m=markers, d=done):
+                                self._apply_inline_markers_to_page(
+                                    p, m, replace=True
+                                )
+                                self.app._normalize_markers(p)
+                                if p == self.app.current_page:
+                                    self.app._show_annotations()
+                                self.app._update_annotation_list()
+                                self.app.sync_web_preview()
+                                self.app.update_status(
+                                    f"第 {p + 1} 页翻译已生成（{d}/{job_total}）"
+                                )
+
+                            self.app.after(0, apply_inline)
+                else:
+                    from src.services.annotation_service import AnnotationService
+
+                    annotation_service = AnnotationService(self.app.settings.llm)
+
+                    update_progress(0, "正在将所选页转为图片...")
+                    self.app.after(
+                        0,
+                        lambda: self.app.update_status("正在渲染所选页面为图片..."),
                     )
 
-                page_images = annotation_service.render_document_page_images(
-                    total_pages=total,
-                    pdf_path=pdf_path,
-                    pdf_doc=self.app.pdf_doc,
-                    source_path=source_path,
-                    on_progress=on_render,
-                    start_page=start_idx,
-                    end_page=end_idx,
-                )
+                    def on_render(current: int, render_total: int) -> None:
+                        update_progress(
+                            0,
+                            f"正在渲染 {current}/{render_total} 页图片...",
+                        )
 
-                images_by_page = {img.page_number: img for img in page_images}
-
-                update_progress(0, "正在理解文档上下文...")
-                self.app.after(
-                    0,
-                    lambda: self.app.update_status(
-                        "正在通读所选页面并生成全局理解..."
-                    ),
-                )
-
-                document_context = annotation_service.analyze_document_context(
-                    page_images,
-                    total_pages=total,
-                    source_path=source_path,
-                    multi_agent=False,
-                    cache_friendly=True,
-                )
-
-                update_progress(0, "全局理解完成，逐页批注...")
-                self.app.after(
-                    0,
-                    lambda: self.app.update_status(
-                        f"逐页批注中（第 {start_page_1}–{end_page_1} 页）..."
-                    ),
-                )
-
-                for offset, page_num in enumerate(range(start_idx, end_idx + 1)):
-                    done = offset + 1
-                    update_progress(
-                        done,
-                        f"批注第 {page_num + 1} 页（{done}/{job_total}）...",
-                    )
-
-                    page_img = images_by_page.get(page_num)
-                    annotations = self._annotate_one_page(
-                        annotation_service,
-                        page_num,
-                        source_path,
-                        pdf_path,
-                        document_context=document_context,
+                    page_images = annotation_service.render_document_page_images(
                         total_pages=total,
-                        page_image=page_img,
-                        use_multi_agent=False,
+                        pdf_path=pdf_path,
+                        pdf_doc=self.app.pdf_doc,
+                        source_path=source_path,
+                        on_progress=on_render,
+                        start_page=start_idx,
+                        end_page=end_idx,
+                    )
+
+                    images_by_page = {img.page_number: img for img in page_images}
+
+                    update_progress(0, "正在理解文档上下文...")
+                    self.app.after(
+                        0,
+                        lambda: self.app.update_status(
+                            "正在通读所选页面并生成全局理解..."
+                        ),
+                    )
+
+                    document_context = annotation_service.analyze_document_context(
+                        page_images,
+                        total_pages=total,
+                        source_path=source_path,
+                        multi_agent=False,
                         cache_friendly=True,
                     )
-                    if annotations:
-                        pages_with_ann += 1
-                        total_ann += len(annotations)
 
-                        def apply_now(
-                            p=page_num,
-                            ann=annotations,
-                            d=done,
-                        ):
-                            self._apply_annotations_to_page_ui(
-                                p, ann, done=d, job_total=job_total
-                            )
+                    update_progress(0, "全局理解完成，逐页批注...")
+                    self.app.after(
+                        0,
+                        lambda: self.app.update_status(
+                            f"逐页批注中（第 {start_page_1}–{end_page_1} 页）..."
+                        ),
+                    )
 
-                        self.app.after(0, apply_now)
+                    for offset, page_num in enumerate(range(start_idx, end_idx + 1)):
+                        done = offset + 1
+                        update_progress(
+                            done,
+                            f"批注第 {page_num + 1} 页（{done}/{job_total}）...",
+                        )
+
+                        page_img = images_by_page.get(page_num)
+                        annotations = self._annotate_one_page(
+                            annotation_service,
+                            page_num,
+                            source_path,
+                            pdf_path,
+                            document_context=document_context,
+                            total_pages=total,
+                            page_image=page_img,
+                            use_multi_agent=False,
+                            cache_friendly=True,
+                        )
+                        if annotations:
+                            pages_with_ann += 1
+                            total_ann += len(annotations)
+
+                            def apply_now(
+                                p=page_num,
+                                ann=annotations,
+                                d=done,
+                            ):
+                                self._apply_annotations_to_page_ui(
+                                    p, ann, done=d, job_total=job_total
+                                )
+
+                            self.app.after(0, apply_now)
 
                 def finish():
                     self._annotating = False
@@ -561,8 +673,11 @@ class Toolbar(GradientToolbar):
         has_annotations = any(
             pages for pages in self.app.annotations_by_file.values()
         ) or bool(self.app.annotations)
-        if not has_annotations:
-            show_warning(self.app, "警告", "没有批注可导出，请先添加批注")
+        has_ink = any(
+            pages for pages in self.app.preview_ink_by_file.values()
+        )
+        if not has_annotations and not has_ink:
+            show_warning(self.app, "警告", "没有批注或预览笔记可导出")
             return
 
         # 默认文件名：原文件名_时间戳
@@ -603,8 +718,19 @@ class Toolbar(GradientToolbar):
             if not markers_by_page:
                 markers_by_page = self.app.annotations
 
+            from src.utils.file_utils import file_key
+            from src.utils.pdf_ink import draw_page_ink
+            from src.utils.preview_ink_store import normalize_ink_pages
+
+            ink_pages = normalize_ink_pages(
+                self.app.preview_ink_by_file.get(file_key(source_file), {})
+            )
+
             for page_num in range(self.app.total_pages):
                 page = doc[page_num]
+                strokes = ink_pages.get(page_num, [])
+                if strokes:
+                    draw_page_ink(page, strokes)
                 markers = markers_by_page.get(page_num, [])
                 if markers:
                     draw_page_annotations(page, markers)
@@ -628,7 +754,8 @@ class Toolbar(GradientToolbar):
         provider_map = {
             "OpenAI": "openai",
             "Ollama": "ollama",
-            "DeepSeek": "deepseek"
+            "DeepSeek": "deepseek",
+            "小米 MiMo": "xiaomi",
         }
         provider = provider_map.get(value, "openai")
         self.app.settings.llm.provider = provider

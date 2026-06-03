@@ -5,7 +5,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+APP_VERSION="$(tr -d '\r\n' < VERSION)"
+APP_VERSION="${APP_VERSION:-0.1.0}"
+
 echo "==> 项目目录: $ROOT"
+echo "==> 版本: v$APP_VERSION"
 
 echo "==> 生成应用图标..."
 python3 scripts/generate_app_icons.py
@@ -26,7 +30,7 @@ echo "==> 应用包: $APP_PATH"
 
 OUTPUT_DIR="packaging/output"
 mkdir -p "$OUTPUT_DIR"
-DMG_NAME="TOPDFAnnotator-1.0.0-mac.dmg"
+DMG_NAME="TOPDFAnnotator-${APP_VERSION}-mac.dmg"
 DMG_PATH="$OUTPUT_DIR/$DMG_NAME"
 
 if command -v hdiutil >/dev/null 2>&1; then

@@ -35,16 +35,19 @@ class UITheme:
     TEXT_MUTED = "#7C7194"
     TEXT_ON_PURPLE = "#FFFFFF"
 
-    ACCENT = PURPLE_700
-    ACCENT_HOVER = PURPLE_800
+    # 品牌主色（与顶栏一致）
+    BRAND = "#6F32C9"
+    BRAND_HOVER = "#5B2AB5"
+    ACCENT = BRAND
+    ACCENT_HOVER = BRAND_HOVER
 
     SUCCESS = "#059669"
     SUCCESS_HOVER = "#047857"
 
-    DANGER = "#BE185D"
-    DANGER_HOVER = "#9D174D"
-    DANGER_SOFT_BG = "#FFF1F5"
-    DANGER_SOFT_BORDER = "#FBCFE8"
+    DANGER = PURPLE_900
+    DANGER_HOVER = PURPLE_950
+    DANGER_SOFT_BG = PURPLE_50
+    DANGER_SOFT_BORDER = PURPLE_400
 
     TOOLBAR_BTN = "#FFFFFF"
     TOOLBAR_BTN_HOVER = "#F5F3FF"
@@ -71,6 +74,8 @@ class UITheme:
     POPUP_SHADOW = "#DDD6FE"
     POPUP_TEXT = "#1E1633"
 
+    ANNOTATION_COLOR_DEFAULT = "#7C3AED"
+
     ANNOTATION_COLORS = [
         "#7C3AED",
         "#8B5CF6",
@@ -78,6 +83,10 @@ class UITheme:
         "#06B6D4",
         "#10B981",
         "#F59E0B",
+        "#000000",
+        "#FFFFFF",
+        "#78350F",
+        "#2563EB",
     ]
 
     # —— 布局 ——
@@ -167,13 +176,60 @@ class UITheme:
 
     @classmethod
     def style_soft_danger(cls, btn: ctk.CTkButton) -> None:
+        """删除类按钮：浅紫底 + 深紫字，与品牌色一致（不用粉红/纯蓝）。"""
         cls._btn_defaults(btn)
         btn.configure(
-            fg_color=cls.DANGER_SOFT_BG,
-            hover_color=cls.DANGER_SOFT_BORDER,
-            text_color=cls.DANGER,
-            border_color=cls.DANGER_SOFT_BORDER,
+            height=cls.BTN_HEIGHT_SM,
+            fg_color=cls.PURPLE_100,
+            hover_color=cls.PURPLE_200,
+            text_color=cls.PURPLE_900,
+            border_color=cls.PURPLE_400,
             border_width=1,
+        )
+
+    @classmethod
+    def style_icon_dismiss(cls, btn: ctk.CTkButton) -> None:
+        cls._btn_defaults(btn)
+        btn.configure(
+            height=28,
+            width=30,
+            corner_radius=cls.RADIUS_SM,
+            fg_color=cls.PURPLE_100,
+            hover_color=cls.PURPLE_200,
+            text_color=cls.PURPLE_800,
+            border_width=0,
+        )
+
+    @classmethod
+    def style_option_menu(cls, menu: ctk.CTkOptionMenu) -> None:
+        menu.configure(
+            height=cls.BTN_HEIGHT_SM,
+            corner_radius=cls.RADIUS_SM,
+            font=cls.font_caption(),
+            fg_color=cls.ACCENT,
+            button_color=cls.ACCENT_HOVER,
+            button_hover_color=cls.PURPLE_900,
+            dropdown_fg_color=cls.SURFACE,
+            dropdown_hover_color=cls.PURPLE_50,
+            dropdown_text_color=cls.TEXT,
+            text_color=cls.TEXT_ON_PURPLE,
+        )
+
+    @classmethod
+    def style_combo(cls, combo: ctk.CTkComboBox) -> None:
+        combo.configure(
+            height=cls.BTN_HEIGHT_SM,
+            corner_radius=cls.RADIUS_SM,
+            font=cls.font_caption(),
+            fg_color=cls.SURFACE,
+            border_color=cls.BORDER,
+            border_width=1,
+            button_color=cls.ACCENT,
+            button_hover_color=cls.ACCENT_HOVER,
+            dropdown_fg_color=cls.SURFACE,
+            dropdown_hover_color=cls.PURPLE_50,
+            dropdown_text_color=cls.TEXT,
+            text_color=cls.TEXT,
         )
 
     @classmethod
@@ -239,18 +295,29 @@ class UITheme:
 
     @classmethod
     def style_segmented_panel(cls, seg: ctk.CTkSegmentedButton) -> None:
-        """设置页等浅底：选中紫底 + 白字，未选中浅紫底 + 深字（避免白底白字）"""
+        """侧栏/设置页：选中品牌紫 + 白字，未选中浅紫底 + 深紫字"""
         seg.configure(
             height=cls.BTN_HEIGHT_SM,
             corner_radius=cls.RADIUS,
             font=cls.font_body(),
             fg_color=cls.PURPLE_100,
-            selected_color=cls.PURPLE_700,
-            selected_hover_color=cls.PURPLE_800,
+            selected_color=cls.ACCENT,
+            selected_hover_color=cls.ACCENT_HOVER,
             unselected_color=cls.SURFACE,
             unselected_hover_color=cls.PURPLE_50,
             text_color=cls.TEXT,
             text_color_disabled=cls.TEXT_MUTED,
+        )
+
+    @classmethod
+    def style_entry(cls, entry: ctk.CTkEntry) -> None:
+        entry.configure(
+            height=cls.BTN_HEIGHT_SM,
+            corner_radius=cls.RADIUS_SM,
+            font=cls.font_caption(),
+            fg_color=cls.SURFACE,
+            border_color=cls.BORDER,
+            text_color=cls.TEXT,
         )
 
     @classmethod
@@ -372,6 +439,15 @@ class UITheme:
             text_color=cls.PURPLE_800,
             border_width=0,
         )
+
+    @classmethod
+    def annotation_color_swatch_params(cls, hex_color: str) -> dict:
+        """批注颜色圆钮参数（白色需描边以便在浅底上可见）。"""
+        params = {"fg_color": hex_color, "hover_color": hex_color}
+        if (hex_color or "").strip().upper() in ("#FFFFFF", "#FFF"):
+            params["border_width"] = 1
+            params["border_color"] = cls.BORDER
+        return params
 
     @classmethod
     def style_annotation_row(cls, frame: ctk.CTkFrame, *, selected: bool = False) -> None:
