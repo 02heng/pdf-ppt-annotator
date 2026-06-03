@@ -29,7 +29,8 @@ SetupIconFile=..\..\assets\branding\icon.ico
 UninstallDisplayIcon={app}\TOPDFAnnotator.exe
 
 [Languages]
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+; CI/精简版 Inno Setup 可能未带中文语言包，使用内置默认语言
+Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加选项:"; Flags: unchecked
