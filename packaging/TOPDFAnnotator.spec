@@ -9,10 +9,17 @@ ROOT = Path(SPECPATH).resolve().parent
 
 block_cipher = None
 
+_brand = ROOT / "assets" / "branding"
+_icon_ico = _brand / "icon.ico"
+_icon_png = _brand / "icon.png"
+_toolbar_png = _brand / "toolbar-logo.png"
+
 datas = [
     (str(ROOT / "config" / "default.yaml"), "config"),
     (str(ROOT / "src" / "web"), "web"),
 ]
+if _brand.is_dir():
+    datas.append((str(_brand), "assets/branding"))
 datas += collect_data_files("customtkinter")
 
 hiddenimports = [
@@ -52,6 +59,8 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+_win_icon = str(_icon_ico) if _icon_ico.is_file() and sys.platform == "win32" else None
+
 exe = EXE(
     pyz,
     a.scripts,
@@ -68,6 +77,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=_win_icon,
 )
 
 coll = COLLECT(
@@ -81,11 +91,13 @@ coll = COLLECT(
     name="TOPDFAnnotator",
 )
 
+_mac_icon = str(_icon_png) if _icon_png.is_file() and sys.platform == "darwin" else None
+
 if sys.platform == "darwin":
     app = BUNDLE(
         coll,
         name="TOPDFAnnotator.app",
-        icon=None,
+        icon=_mac_icon,
         bundle_identifier="com.topdf.annotator",
         info_plist={
             "CFBundleName": "TO PDF 批注工具",

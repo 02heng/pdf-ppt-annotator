@@ -1,41 +1,196 @@
 * {
   box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: #c4b5fd #ede9fe;
 }
 
 body {
   margin: 0;
-  font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
-  background: #2b2b2b;
-  color: #eee;
+  font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  background: linear-gradient(165deg, #f4f0fa 0%, #ede9fe 38%, #ffffff 72%);
+  color: #1e1633;
   height: 100vh;
   display: flex;
   flex-direction: column;
 }
 
+/* 淡紫圆角滚动条（Web 预览与工具面板） */
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #ede9fe;
+  border-radius: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #c4b5fd;
+  border-radius: 10px;
+  border: 2px solid #ede9fe;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #a78bfa;
+}
+
+*::-webkit-scrollbar-corner {
+  background: #ede9fe;
+}
+
+.toolbar-brand {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 12px;
-  background: #1e1e1e;
-  border-bottom: 1px solid #444;
+  gap: 14px;
+  padding: 12px 20px;
+  background: linear-gradient(105deg, #a78bfa 0%, #7c3aed 42%, #5b21b6 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 4px 20px rgba(91, 33, 182, 0.28);
+  flex-shrink: 0;
 }
 
 .toolbar button {
-  background: #3d5afe;
-  color: #fff;
+  background: rgba(255, 255, 255, 0.96);
+  color: #5b21b6;
   border: none;
-  border-radius: 4px;
-  padding: 6px 12px;
+  border-radius: 10px;
+  padding: 8px 16px;
+  font-weight: 600;
+  font-size: 13px;
   cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 1px 4px rgba(30, 22, 51, 0.08);
 }
 
 .toolbar button:hover {
-  background: #536dfe;
+  background: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(91, 33, 182, 0.2);
+}
+
+.toolbar-tools-btn.active {
+  background: #ede9fe;
+  box-shadow: inset 0 0 0 2px #7c3aed;
 }
 
 .toolbar span {
   font-size: 14px;
+  color: #ffffff;
+  font-weight: 500;
+}
+
+#status {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.9);
+  margin-left: auto;
+}
+
+#page-label {
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+/* —— 演示工具侧栏（参考 PPT 放映墨迹菜单） —— */
+.tools-panel {
+  position: fixed;
+  top: 72px;
+  right: 20px;
+  width: 220px;
+  background: #ffffff;
+  border: 2px solid #e11d48;
+  border-radius: 4px;
+  box-shadow: 0 12px 36px rgba(30, 22, 51, 0.18);
+  z-index: 100;
+  padding: 8px 0 12px;
+}
+
+.tools-panel.hidden {
+  display: none;
+}
+
+.tools-panel-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  padding: 6px 14px 8px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.tools-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+
+.tool-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: #1e1633;
+  cursor: pointer;
+  gap: 8px;
+}
+
+.tool-item:hover {
+  background: #f4f0fa;
+}
+
+.tool-item.active {
+  background: #ede9fe;
+  color: #5b21b6;
+  font-weight: 600;
+}
+
+.tool-item-muted {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.tools-colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 14px 4px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.color-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 3px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.color-swatch.selected {
+  border-color: #64748b;
+  box-shadow: 0 0 0 1px #fff inset;
+}
+
+.color-swatch[data-color="#ffffff"] {
+  box-shadow: inset 0 0 0 1px #cbd5e1;
+}
+
+.tools-hint {
+  margin: 8px 14px 0;
+  font-size: 11px;
+  color: #7c7194;
+  line-height: 1.45;
 }
 
 #viewer-wrap {
@@ -43,18 +198,73 @@ body {
   overflow: auto;
   display: flex;
   justify-content: center;
-  padding: 16px;
-  background: #525659;
+  align-items: center;
+  padding: 24px;
+  background: linear-gradient(180deg, #faf8ff 0%, #f4f0fa 50%, #ffffff 100%);
+}
+
+#viewer-wrap.mode-laser {
+  cursor: none;
+}
+
+#viewer-wrap.mode-pen,
+#viewer-wrap.mode-highlighter {
+  cursor: crosshair;
+}
+
+#viewer-wrap.mode-eraser {
+  cursor: cell;
+}
+
+/* 视口固定为基准尺寸，内部高清重绘 + 平移，避免 CSS scale 模糊 */
+#page-viewport {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(109, 40, 217, 0.15);
+  background: #fff;
 }
 
 #page-container {
   position: relative;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  border-radius: 8px;
+  will-change: transform;
+}
+
+#page-container.page-magnify-smooth {
+  transition: transform 0.56s cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+#page-container.page-magnify-sharp {
+  transition: none;
 }
 
 #pdf-canvas {
   display: block;
   background: #fff;
+  border-radius: 4px;
+}
+
+#ink-canvas,
+#laser-canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+}
+
+#ink-canvas.interactive {
+  pointer-events: auto;
+  cursor: inherit;
+}
+
+#focus-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 5;
 }
 
 #annotation-layer {
@@ -62,51 +272,57 @@ body {
   left: 0;
   top: 0;
   pointer-events: none;
+  z-index: 10;
+  overflow: visible;
 }
 
 .annot-marker {
   position: absolute;
-  width: 22px;
-  height: 22px;
-  border: 2px solid #e74c3c;
-  background: #ffe066;
-  border-radius: 3px;
+  width: 24px;
+  height: 24px;
+  overflow: visible;
+  border: 2px solid #7c3aed;
+  background: linear-gradient(145deg, #ffffff, #ede9fe);
+  border-radius: 8px;
   cursor: pointer;
   pointer-events: auto;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 11px;
-  font-weight: bold;
-  color: #333;
+  font-weight: 700;
+  color: #5b21b6;
   z-index: 10;
-  transition: transform 0.15s;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
+.annot-marker:hover,
 .annot-marker.active {
-  transform: scale(1.1);
+  transform: scale(1.06);
+  box-shadow: 0 6px 16px rgba(124, 58, 237, 0.32);
   z-index: 20;
 }
 
 .annot-popup {
   display: none;
   position: absolute;
-  left: 28px;
+  left: 30px;
   top: 0;
   min-width: 280px;
-  max-width: 360px;
-  max-height: 320px;
+  max-width: 380px;
+  max-height: 340px;
   overflow-y: auto;
-  background: #fffbe6;
-  border: 2px solid #e74c3c;
-  border-radius: 6px;
-  padding: 10px 12px;
-  color: #222;
+  background: linear-gradient(180deg, #ffffff 0%, #faf8ff 100%);
+  border: 1px solid #e8e0f5;
+  border-left: 3px solid #8b5cf6;
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: #1e1633;
   font-size: 13px;
-  line-height: 1.55;
+  line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 12px 32px rgba(91, 33, 182, 0.18);
   z-index: 30;
 }
 
@@ -115,13 +331,9 @@ body {
 }
 
 .annot-popup-title {
-  font-weight: bold;
-  color: #e74c3c;
-  margin-bottom: 6px;
+  font-weight: 700;
+  color: #7c3aed;
+  margin-bottom: 8px;
   font-size: 12px;
-}
-
-#status {
-  font-size: 12px;
-  color: #aaa;
+  letter-spacing: 0.02em;
 }

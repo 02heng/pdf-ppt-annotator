@@ -1,6 +1,8 @@
 import customtkinter as ctk
 import tkinter as tk
-from tkinter import messagebox, filedialog
+from tkinter import filedialog
+
+from src.ui.message_dialog import ask_yes_no, show_warning
 from typing import List, Dict, Tuple
 from PIL import Image, ImageTk
 import io
@@ -9,6 +11,9 @@ import os
 from src.models.config import Settings
 from src.ui.toolbar import Toolbar
 from src.ui.status_bar import StatusBar
+from src.ui.theme import UITheme
+from src.ui.chrome import SectionHeader
+from src.utils.annotation_text import format_annotation_list_preview
 
 
 class AnnotationMarker:
@@ -17,9 +22,11 @@ class AnnotationMarker:
     MARKER_SIZE = 22
     POPUP_OFFSET_X = 28
     POPUP_WIDTH = 300
-    POPUP_MAX_HEIGHT = 320
+    POPUP_MAX_HEIGHT = 420
+    TITLE_AREA = 42
+    POPUP_PADDING = 10
 
-    def __init__(self, x: int, y: int, text: str, color: str = "#FF6B6B"):
+    def __init__(self, x: int, y: int, text: str, color: str = "#7C3AED"):
         self.x = x
         self.y = y
         self.text = text
@@ -41,20 +48,46 @@ class AnnotationMarker:
         self.icon_rect = (0, 0, 0, 0)
         self.popup_rect = None
         self.close_rect = None
+        self.popup_window_id = None
 
-    def _calc_popup_height(self) -> int:
-        """根据文本长度计算弹层高度"""
-        line_height = 18
-        chars_per_line = max(12, (self.POPUP_WIDTH - 24) // 11)
+    @staticmethod
+    def _wrap_font():
+        import tkinter.font as tkfont
+
+        return tkfont.Font(family="Microsoft YaHei UI", size=11)
+
+    def _measure_body_height(self) -> int:
+        """按与弹层 Textbox 相同的字体/宽度测算正文高度"""
+        font = self._wrap_font()
+        wrap_width = self.POPUP_WIDTH - 28
+        line_height = font.metrics("linespace") + 6
         lines = 0
+
         for paragraph in self.text.split("\n"):
-            paragraph = paragraph.strip()
-            if not paragraph:
+            if not paragraph.strip():
                 lines += 1
                 continue
-            lines += max(1, (len(paragraph) + chars_per_line - 1) // chars_per_line)
-        content_height = lines * line_height + 44
-        return min(max(content_height, 88), self.POPUP_MAX_HEIGHT)
+            line = ""
+            for ch in paragraph:
+                trial = line + ch
+                if font.measure(trial) <= wrap_width:
+                    line = trial
+                else:
+                    if line:
+                        lines += 1
+                    line = ch
+            if line:
+                lines += 1
+
+        # 留一点余量，避免测算偏矮导致画出白框
+        return max(lines, 1) * line_height + 16
+
+    def _calc_popup_height(self) -> int:
+        """弹层总高度 = 标题区 + 正文区（超出最大高度时正文区可滚动）"""
+        max_body = self.POPUP_MAX_HEIGHT - self.TITLE_AREA - self.POPUP_PADDING
+        body_h = min(self._measure_body_height(), max_body)
+        total = self.TITLE_AREA + body_h + self.POPUP_PADDING
+        return int(max(min(total, self.POPUP_MAX_HEIGHT), 100))
 
     def toggle_expand(self):
         """切换展开/折叠状态"""
@@ -84,6 +117,8 @@ class AnnotationMarker:
 class App(ctk.CTk):
     """主应用窗口"""
 
+    PPT_IMPORT_ZOOM = 0.6
+
     def __init__(self, settings: Settings):
         super().__init__()
 
@@ -99,6 +134,11 @@ class App(ctk.CTk):
         self.page_image = None
         self.tk_image = None
         self.text_positions = {}  # LiteParse 文本位置信息
+        self._preview_shell_ready = False
+        self._page_image_id = None
+        self._page_offset_x = 0
+        self._page_offset_y = 0
+        self._canvas_configure_after = None
 
         # 批注相关
         self.annotations: Dict[int, List[AnnotationMarker]] = {}  # 当前文件的批注
@@ -112,15 +152,20 @@ class App(ctk.CTk):
         self._did_drag = False
 
         # 配置窗口
-        self.title("PDF/PPT 中文批注工具")
-        self.geometry("1400x900")
+        self.title("TO PDF · 中文批注")
+        self.geometry("1440x920")
+        self.minsize(1100, 720)
 
-        # 设置主题
-        ctk.set_appearance_mode(settings.app.theme)
-        ctk.set_default_color_theme("blue")
+        UITheme.install()
+        UITheme.apply_root(self)
+
+        from src.utils.branding import apply_window_icon
+
+        apply_window_icon(self)
 
         # 创建 UI 组件
         self._create_widgets()
+        self._apply_theme()
 
         # 配置布局
         self._configure_layout()
@@ -145,17 +190,17 @@ class App(ctk.CTk):
         self.toolbar = Toolbar(self)
 
         # 主内容区域
-        self.content_frame = ctk.CTkFrame(self)
+        self.content_frame = ctk.CTkFrame(self, fg_color="transparent")
 
         # 左侧文件列表
-        self.file_list_frame = ctk.CTkFrame(self.content_frame, width=200)
+        self.file_list_frame = ctk.CTkFrame(self.content_frame, width=248)
         self._create_file_list()
 
         # 中间预览区域
         self.preview_frame = ctk.CTkFrame(self.content_frame)
 
         # 右侧批注面板
-        self.sidebar_frame = ctk.CTkFrame(self.content_frame, width=320)
+        self.sidebar_frame = ctk.CTkFrame(self.content_frame, width=380)
         self._create_sidebar()
 
         # 状态栏
@@ -163,77 +208,67 @@ class App(ctk.CTk):
 
     def _create_file_list(self) -> None:
         """创建文件列表"""
-        # 标题
-        title_label = ctk.CTkLabel(
-            self.file_list_frame,
-            text="文件列表",
-            font=("Arial", 14, "bold")
-        )
-        title_label.pack(pady=10)
-
-        btn_row = ctk.CTkFrame(self.file_list_frame, fg_color="transparent")
-        btn_row.pack(fill="x", padx=5, pady=(0, 4))
-
-        self.remove_file_btn = ctk.CTkButton(
-            btn_row,
-            text="移除当前文件",
-            height=28,
-            fg_color="#c0392b",
-            hover_color="#a93226",
-            command=self._remove_current_file,
-        )
-        self.remove_file_btn.pack(fill="x")
+        header = SectionHeader(self.file_list_frame, text="文件列表")
+        header.pack(fill="x", padx=UITheme.PAD, pady=(UITheme.PAD, UITheme.PAD_SM))
 
         # 文件列表
-        self.file_listbox = ctk.CTkScrollableFrame(self.file_list_frame)
-        self.file_listbox.pack(fill="both", expand=True, padx=5, pady=5)
-
-        # 提示标签
-        self.file_hint = ctk.CTkLabel(
+        self.file_listbox = ctk.CTkScrollableFrame(
             self.file_list_frame,
-            text="导入文件",
-            text_color="gray"
+            fg_color=UITheme.FILE_LIST_BG,
+            label_fg_color=UITheme.FILE_LIST_BG,
+            **UITheme.scrollable_frame_kwargs(),
         )
-        self.file_hint.pack(pady=10)
+        self.file_listbox.pack(fill="both", expand=True, padx=UITheme.PAD, pady=UITheme.PAD_SM)
+        UITheme.style_scrollable_frame(self.file_listbox)
+
+        self.file_hint = ctk.CTkLabel(self.file_list_frame, text="点击顶部「导入」添加 PDF / PPT")
+        self.file_hint.pack(pady=UITheme.PAD)
 
     def _create_sidebar(self) -> None:
-        """创建批注侧边栏"""
-        # 标题
-        title_frame = ctk.CTkFrame(self.sidebar_frame)
-        title_frame.pack(fill="x", padx=5, pady=5)
+        """创建批注侧边栏（单卡片统一宽度，避免列表与编辑区不齐）"""
+        pad = UITheme.PAD_SM
+        self._editor_card = ctk.CTkFrame(self.sidebar_frame)
+        self._editor_card.pack(fill="both", expand=True, padx=UITheme.PAD, pady=UITheme.PAD)
+        UITheme.style_card(self._editor_card, elevated=True)
 
-        title_label = ctk.CTkLabel(
-            title_frame,
-            text="批注管理",
-            font=("Arial", 14, "bold")
-        )
-        title_label.pack(side="left", padx=10)
+        title_row = ctk.CTkFrame(self._editor_card, fg_color="transparent")
+        title_row.pack(fill="x", padx=pad, pady=(pad, 4))
 
-        # 添加批注按钮
+        SectionHeader(title_row, text="批注管理").pack(side="left")
+
         add_btn = ctk.CTkButton(
-            title_frame,
+            title_row,
             text="+ 添加",
-            width=70,
-            command=self._add_annotation_mode
+            width=88,
+            command=self._add_annotation_mode,
         )
-        add_btn.pack(side="right", padx=5)
+        add_btn.pack(side="right")
+        UITheme.style_primary(add_btn)
 
-        # 当前页面批注列表
-        self.annotation_list = ctk.CTkScrollableFrame(self.sidebar_frame)
-        self.annotation_list.pack(fill="both", expand=True, padx=5, pady=5)
+        self.annotation_list = ctk.CTkScrollableFrame(
+            self._editor_card,
+            height=150,
+            fg_color="transparent",
+            **UITheme.scrollable_frame_kwargs(),
+        )
+        self.annotation_list.pack(fill="x", padx=pad, pady=(0, pad))
+        UITheme.style_scrollable_frame(self.annotation_list)
 
-        # 批注编辑区域
-        edit_frame = ctk.CTkFrame(self.sidebar_frame)
-        edit_frame.pack(fill="x", padx=5, pady=5)
+        SectionHeader(self._editor_card, text="批注内容").pack(
+            fill="x", padx=pad, pady=(pad, 4)
+        )
 
-        ctk.CTkLabel(edit_frame, text="批注内容:").pack(anchor="w", padx=5, pady=2)
+        self.annotation_input = ctk.CTkTextbox(
+            self._editor_card,
+            height=240,
+            wrap="word",
+            activate_scrollbars=True,
+        )
+        self.annotation_input.pack(fill="both", expand=True, padx=pad, pady=4)
+        UITheme.style_textbox(self.annotation_input)
 
-        self.annotation_input = ctk.CTkTextbox(edit_frame, height=80)
-        self.annotation_input.pack(fill="x", padx=5, pady=2)
-
-        # 按钮区域
-        btn_frame = ctk.CTkFrame(edit_frame)
-        btn_frame.pack(fill="x", padx=5, pady=5)
+        btn_frame = ctk.CTkFrame(self._editor_card, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=pad, pady=pad)
 
         self.save_btn = ctk.CTkButton(
             btn_frame,
@@ -247,48 +282,66 @@ class App(ctk.CTk):
             btn_frame,
             text="删除",
             width=80,
-            fg_color="#e74c3c",
-            hover_color="#c0392b",
             command=self._delete_annotation
         )
         self.delete_btn.pack(side="left", padx=5)
 
-        # 批注颜色选择
-        color_frame = ctk.CTkFrame(edit_frame)
-        color_frame.pack(fill="x", padx=5, pady=5)
+        color_frame = ctk.CTkFrame(self._editor_card, fg_color="transparent")
+        color_frame.pack(fill="x", padx=pad, pady=(0, pad))
 
-        ctk.CTkLabel(color_frame, text="颜色:").pack(side="left", padx=5)
+        ctk.CTkLabel(color_frame, text="标记颜色", font=UITheme.font_caption(), text_color=UITheme.TEXT_MUTED).pack(
+            side="left", padx=(0, 8)
+        )
 
-        self.color_var = ctk.StringVar(value="#FF6B6B")
-        colors = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7", "#DDA0DD"]
+        self.color_var = ctk.StringVar(value=UITheme.ANNOTATION_COLORS[0])
+        colors = UITheme.ANNOTATION_COLORS
         for color in colors:
             btn = ctk.CTkButton(
                 color_frame,
                 text="",
-                width=25,
-                height=25,
+                width=28,
+                height=28,
+                corner_radius=14,
                 fg_color=color,
                 hover_color=color,
-                command=lambda c=color: self._set_color(c)
+                command=lambda c=color: self._set_color(c),
             )
-            btn.pack(side="left", padx=2)
+            btn.pack(side="left", padx=3)
 
-        # 批注模式提示
         self.mode_hint = ctk.CTkLabel(
             self.sidebar_frame,
-            text="拖动标记可移动，双击查看批注，点击空白处关闭",
-            text_color="gray"
+            text="滚轮滚动页面 · ± 缩放 · 拖动标记移动",
         )
-        self.mode_hint.pack(pady=5)
+        self.mode_hint.pack(pady=(0, UITheme.PAD))
+
+    def _apply_theme(self) -> None:
+        """应用设计系统"""
+        UITheme.style_card(self.file_list_frame)
+        UITheme.style_card(self.preview_frame)
+        UITheme.style_card(self.sidebar_frame)
+        if hasattr(self, "_editor_card"):
+            UITheme.style_card(self._editor_card, elevated=True)
+        UITheme.style_primary(self.save_btn)
+        UITheme.style_soft_danger(self.delete_btn)
+        UITheme.muted_label(self.file_hint)
+        UITheme.muted_label(self.mode_hint)
+        if hasattr(self, "_nav_inner"):
+            UITheme.style_nav_bar(self._nav_inner)
+            for btn in getattr(self, "_nav_buttons", []):
+                UITheme.style_nav_button(btn)
+            UITheme.title_label(self.page_label)
 
     def _configure_layout(self) -> None:
-        """配置布局"""
-        self.toolbar.pack(fill="x", padx=5, pady=5)
-        self.content_frame.pack(fill="both", expand=True, padx=5, pady=5)
-        self.file_list_frame.pack(side="left", fill="y")
-        self.preview_frame.pack(side="left", fill="both", expand=True)
-        self.sidebar_frame.pack(side="right", fill="y")
-        self.status_bar.pack(fill="x", padx=5, pady=5)
+        """配置布局（状态栏先贴底，避免被 expand 的中间区域挤出屏幕）"""
+        p = UITheme.PAD
+        self.status_bar.pack(side="bottom", fill="x", padx=p, pady=(0, p))
+        self.toolbar.pack(side="top", fill="x", padx=p, pady=(p, UITheme.PAD_SM))
+        self.content_frame.pack(
+            side="top", fill="both", expand=True, padx=p, pady=(UITheme.PAD_SM, UITheme.PAD_SM)
+        )
+        self.file_list_frame.pack(side="left", fill="y", padx=(0, UITheme.PAD_SM))
+        self.preview_frame.pack(side="left", fill="both", expand=True, padx=UITheme.PAD_SM)
+        self.sidebar_frame.pack(side="right", fill="y", padx=(UITheme.PAD_SM, 0))
 
     def _current_file_path(self) -> str:
         if 0 <= self.current_file_index < len(self.selected_files):
@@ -308,13 +361,19 @@ class App(ctk.CTk):
 
     def _marker_to_canvas(self, marker: AnnotationMarker) -> Tuple[float, float]:
         scale = self._canvas_scale()
-        return marker.x * scale, marker.y * scale
+        return (
+            marker.x * scale + self._page_offset_x,
+            marker.y * scale + self._page_offset_y,
+        )
 
     def _canvas_to_pdf(self, cx: float, cy: float) -> Tuple[float, float]:
         scale = self._canvas_scale()
         if scale <= 0:
             return cx, cy
-        return cx / scale, cy / scale
+        return (
+            (cx - self._page_offset_x) / scale,
+            (cy - self._page_offset_y) / scale,
+        )
 
     def _normalize_markers(self, page_num: int) -> None:
         """将旧版画布坐标转为 PDF 页坐标，并限制在页面内"""
@@ -444,19 +503,12 @@ class App(ctk.CTk):
 
         if not files:
             self.file_hint.configure(text="导入文件")
-            if hasattr(self, "remove_file_btn"):
-                self.remove_file_btn.configure(state="disabled")
             return
 
         self.file_hint.configure(text="")
-        if hasattr(self, "remove_file_btn"):
-            self.remove_file_btn.configure(state="normal")
 
         for idx, file_path in enumerate(files):
-            frame = ctk.CTkFrame(self.file_listbox)
-            frame.pack(fill="x", pady=2)
-
-            file_name = file_path.split("/")[-1].split("\\")[-1]
+            file_name = os.path.basename(file_path)
             lower = file_name.lower()
             if lower.endswith(".pdf"):
                 icon = "📄"
@@ -466,28 +518,46 @@ class App(ctk.CTk):
                 icon = "📁"
 
             is_current = idx == self.current_file_index
-            file_btn = ctk.CTkButton(
-                frame,
-                text=f"{icon} {file_name}",
-                anchor="w",
-                fg_color=("gray80", "gray25") if is_current else "transparent",
-                text_color=("gray10", "gray90"),
-                hover_color=("gray70", "gray30"),
-                command=lambda i=idx: self._on_file_select(i)
+            display_name = UITheme.truncate_filename(file_name)
+
+            row = ctk.CTkFrame(
+                self.file_listbox,
+                fg_color=UITheme.PURPLE_100 if is_current else UITheme.SURFACE,
+                border_color=UITheme.PURPLE_400 if is_current else UITheme.BORDER,
+                border_width=1 if is_current else 0,
+                corner_radius=UITheme.RADIUS,
             )
-            file_btn.pack(side="left", fill="x", expand=True, padx=(5, 2))
+            row.pack(fill="x", pady=3, padx=2)
+            row.grid_columnconfigure(0, weight=1)
+
+            name_label = ctk.CTkLabel(
+                row,
+                text=f"{icon} {display_name}",
+                anchor="w",
+                justify="left",
+                font=UITheme.font_body(),
+                text_color=UITheme.PURPLE_800 if is_current else UITheme.TEXT,
+                cursor="hand2",
+            )
+            name_label.grid(row=0, column=0, sticky="ew", padx=(10, 4), pady=8)
+
+            def select_file(_event=None, i=idx):
+                self._on_file_select(i)
+
+            name_label.bind("<Button-1>", select_file)
+            row.bind("<Button-1>", select_file)
+            UITheme.bind_tooltip(name_label, file_name)
+            UITheme.bind_tooltip(row, file_name)
 
             remove_btn = ctk.CTkButton(
-                frame,
+                row,
                 text="删",
                 width=32,
                 height=28,
-                fg_color="#e74c3c",
-                hover_color="#c0392b",
-                text_color="white",
                 command=lambda i=idx: self._remove_file(i),
             )
-            remove_btn.pack(side="right", padx=(2, 5))
+            remove_btn.grid(row=0, column=1, padx=(0, 6), pady=6)
+            UITheme.style_danger(remove_btn)
 
         # 默认选中第一个文件
         if files and self.current_file_index < 0:
@@ -518,9 +588,9 @@ class App(ctk.CTk):
             elif file_path.lower().endswith(('.ppt', '.pptx')):
                 self._load_ppt(file_path, page=page)
             else:
-                messagebox.showwarning("警告", "不支持的文件格式")
+                show_warning(self, "警告", "不支持的文件格式")
         except Exception as e:
-            messagebox.showerror("错误", f"加载文件时出错: {str(e)}")
+            show_warning(self, "错误", f"加载文件时出错: {str(e)}")
 
     def _get_page_text(self, page_num: int) -> str:
         """获取当前文件指定页的文字"""
@@ -554,9 +624,9 @@ class App(ctk.CTk):
             self.update_status(f"已加载PDF: {self.total_pages}页")
 
         except ImportError:
-            messagebox.showerror("错误", "请安装PyMuPDF: pip install pymupdf")
+            show_warning(self, "错误", "请安装PyMuPDF: pip install pymupdf")
         except Exception as e:
-            messagebox.showerror("错误", f"读取PDF出错: {str(e)}")
+            show_warning(self, "错误", f"读取PDF出错: {str(e)}")
 
     def _load_text_positions(self, file_path: str) -> None:
         """使用 LiteParse 加载文本位置信息"""
@@ -630,11 +700,201 @@ class App(ctk.CTk):
 
             pdf_path = convert_ppt_to_pdf(file_path)
             self.converted_pdf_paths[self._file_key(file_path)] = pdf_path
+            self.zoom_level = self.PPT_IMPORT_ZOOM
             self._load_pdf(pdf_path, page=page, load_text_positions=False)
             self.update_status(f"已加载 PPT: {self.total_pages} 页")
         except Exception as e:
-            messagebox.showerror("错误", f"无法打开 PPT：{e}")
+            show_warning(self, "错误", f"无法打开 PPT：{e}")
             raise
+
+    def _ensure_preview_shell(self) -> None:
+        """固定预览区：底部缩放/翻页栏 + 带滚动条的画布（PDF/PPT 共用）"""
+        if self._preview_shell_ready:
+            return
+
+        nav_outer = ctk.CTkFrame(self.preview_frame, fg_color="transparent")
+        nav_outer.pack(side="bottom", fill="x", padx=UITheme.PAD, pady=UITheme.PAD)
+
+        self._nav_inner = ctk.CTkFrame(nav_outer)
+        self._nav_inner.pack(fill="x")
+        UITheme.style_nav_bar(self._nav_inner)
+
+        nav = self._nav_inner
+        self._nav_buttons = []
+
+        zoom_frame = ctk.CTkFrame(nav, fg_color="transparent")
+        zoom_frame.pack(side="left", padx=UITheme.PAD, pady=UITheme.PAD_SM)
+
+        zoom_out_btn = ctk.CTkButton(zoom_frame, text="−", width=36, command=self._zoom_out)
+        zoom_out_btn.pack(side="left", padx=2)
+        UITheme.style_nav_button(zoom_out_btn)
+        self._nav_buttons.append(zoom_out_btn)
+
+        self.zoom_label = ctk.CTkLabel(
+            zoom_frame,
+            text=f"{int(self.zoom_level * 100)}%",
+            width=56,
+            font=UITheme.font_section(),
+            text_color=UITheme.PURPLE_800,
+        )
+        self.zoom_label.pack(side="left", padx=6)
+
+        zoom_in_btn = ctk.CTkButton(zoom_frame, text="+", width=36, command=self._zoom_in)
+        zoom_in_btn.pack(side="left", padx=2)
+        UITheme.style_nav_button(zoom_in_btn)
+        self._nav_buttons.append(zoom_in_btn)
+
+        self.prev_btn = ctk.CTkButton(nav, text="上一页", command=self._prev_page, width=96)
+        self.prev_btn.pack(side="left", padx=UITheme.PAD)
+        UITheme.style_nav_button(self.prev_btn)
+        self._nav_buttons.append(self.prev_btn)
+
+        self.page_label = ctk.CTkLabel(
+            nav,
+            text="0 / 0",
+            font=UITheme.font_section(),
+            text_color=UITheme.TEXT,
+        )
+        self.page_label.pack(side="left", expand=True)
+
+        self.next_btn = ctk.CTkButton(nav, text="下一页", command=self._next_page, width=96)
+        self.next_btn.pack(side="right", padx=UITheme.PAD)
+        UITheme.style_nav_button(self.next_btn)
+        self._nav_buttons.append(self.next_btn)
+
+        self._viewer_host = ctk.CTkFrame(self.preview_frame, fg_color="transparent")
+        self._viewer_host.pack(side="top", fill="both", expand=True, padx=5, pady=(5, 0))
+
+        self._canvas_panel = tk.Frame(self._viewer_host, bg=UITheme.BG, highlightthickness=0)
+        self._canvas_panel.pack(fill="both", expand=True)
+        self._canvas_panel.grid_rowconfigure(0, weight=1)
+        self._canvas_panel.grid_columnconfigure(0, weight=1)
+
+        self.canvas = tk.Canvas(
+            self._canvas_panel,
+            bg=UITheme.SURFACE,
+            highlightthickness=0,
+        )
+        self._v_scroll = ctk.CTkScrollbar(
+            self._canvas_panel,
+            orientation="vertical",
+            command=self.canvas.yview,
+        )
+        self._h_scroll = ctk.CTkScrollbar(
+            self._canvas_panel,
+            orientation="horizontal",
+            command=self.canvas.xview,
+        )
+        self.canvas.configure(
+            yscrollcommand=self._v_scroll.set,
+            xscrollcommand=self._h_scroll.set,
+        )
+        UITheme.style_scrollbar(self._v_scroll)
+        UITheme.style_scrollbar(self._h_scroll)
+
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        self._v_scroll.grid(row=0, column=1, sticky="ns")
+        self._h_scroll.grid(row=1, column=0, sticky="ew")
+
+        self._bind_canvas_events()
+        self._preview_shell_ready = True
+
+    def _bind_canvas_events(self) -> None:
+        """画布交互：滚轮滚动（非缩放），批注拖拽等"""
+        self.canvas.bind("<Button-1>", self._on_canvas_press)
+        self.canvas.bind("<B1-Motion>", self._on_canvas_drag)
+        self.canvas.bind("<ButtonRelease-1>", self._on_canvas_release)
+        self.canvas.bind("<Double-Button-1>", self._on_canvas_double_click)
+
+        for widget in (self.canvas, self._canvas_panel, self._viewer_host):
+            widget.bind("<MouseWheel>", self._on_canvas_scroll)
+            widget.bind("<Button-4>", self._on_canvas_scroll_linux_up)
+            widget.bind("<Button-5>", self._on_canvas_scroll_linux_down)
+
+        self.canvas.bind("<Configure>", self._on_canvas_configure)
+
+    def _on_canvas_configure(self, event) -> None:
+        """窗口尺寸变化时保持页面在可视区域居中"""
+        if event.width < 2 or not self.page_image:
+            return
+        if self._canvas_configure_after:
+            self.after_cancel(self._canvas_configure_after)
+        self._canvas_configure_after = self.after(80, self._relayout_page_view)
+
+    def _relayout_page_view(self) -> None:
+        self._canvas_configure_after = None
+        if not self.page_image or not self.canvas:
+            return
+        self._layout_page_in_canvas()
+        self._show_annotations()
+
+    def _layout_page_in_canvas(self) -> None:
+        """将 PDF 页面置于滚动区域中央，并调整初始滚动位置"""
+        if not self.page_image or not self.canvas:
+            return
+
+        pad = 24
+        pw, ph = self.page_image.size
+        self.canvas.update_idletasks()
+        cw = max(self.canvas.winfo_width(), 1)
+        ch = max(self.canvas.winfo_height(), 1)
+
+        region_w = max(pw + pad * 2, cw)
+        region_h = max(ph + pad * 2, ch)
+        self._page_offset_x = (region_w - pw) // 2
+        self._page_offset_y = (region_h - ph) // 2
+
+        if self._page_image_id:
+            self.canvas.coords(
+                self._page_image_id,
+                self._page_offset_x,
+                self._page_offset_y,
+            )
+        else:
+            self._page_image_id = self.canvas.create_image(
+                self._page_offset_x,
+                self._page_offset_y,
+                anchor="nw",
+                image=self.tk_image,
+            )
+
+        self.canvas.configure(scrollregion=(0, 0, region_w, region_h))
+
+        if region_w > cw:
+            self.canvas.xview_moveto(
+                max(0, (self._page_offset_x + pw / 2 - cw / 2) / (region_w - cw))
+            )
+        else:
+            self.canvas.xview_moveto(0)
+
+        if region_h > ch:
+            self.canvas.yview_moveto(
+                max(0, (self._page_offset_y + ph / 2 - ch / 2) / (region_h - ch))
+            )
+        else:
+            self.canvas.yview_moveto(0)
+
+    def _on_canvas_scroll(self, event) -> str:
+        """滚轮上下滚动页面（与 Web 预览一致，不用滚轮缩放）"""
+        if not hasattr(self, "canvas"):
+            return "break"
+        delta = int(-1 * (event.delta / 120)) if event.delta else 0
+        if delta:
+            self.canvas.yview_scroll(delta, "units")
+        return "break"
+
+    def _on_canvas_scroll_linux_up(self, event) -> str:
+        self.canvas.yview_scroll(-3, "units")
+        return "break"
+
+    def _on_canvas_scroll_linux_down(self, event) -> str:
+        self.canvas.yview_scroll(3, "units")
+        return "break"
+
+    def _destroy_preview_shell(self) -> None:
+        for widget in self.preview_frame.winfo_children():
+            widget.destroy()
+        self._preview_shell_ready = False
 
     def _render_page(self) -> None:
         """渲染当前页面"""
@@ -644,113 +904,46 @@ class App(ctk.CTk):
         try:
             import fitz  # PyMuPDF
         except ImportError:
-            messagebox.showerror("错误", "请安装PyMuPDF: pip install pymupdf")
+            show_warning(self, "错误", "请安装PyMuPDF: pip install pymupdf")
             return
 
-        # 清空预览区域
-        for widget in self.preview_frame.winfo_children():
-            widget.destroy()
+        self._ensure_preview_shell()
 
-        # 创建Canvas（放在顶部）
-        self.canvas = tk.Canvas(self.preview_frame, bg="#f0f0f0")
-        self.canvas.pack(fill="both", expand=True, padx=5, pady=(5, 0))
-
-        # 渲染PDF页面为图片
         page = self.pdf_doc[self.current_page]
-
-        # 根据缩放级别渲染
-        mat = fitz.Matrix(self.zoom_level * 2, self.zoom_level * 2)  # 2x for better quality
+        mat = fitz.Matrix(self.zoom_level * 2, self.zoom_level * 2)
         pix = page.get_pixmap(matrix=mat)
 
-        # 转换为PIL Image
         img_data = pix.tobytes("png")
         self.page_image = Image.open(io.BytesIO(img_data))
-
-        # 转换为Tkinter PhotoImage
         self.tk_image = ImageTk.PhotoImage(self.page_image)
 
-        # 在Canvas上显示图片
-        self.canvas.create_image(0, 0, anchor="nw", image=self.tk_image)
+        self.canvas.delete("all")
+        self._page_image_id = None
+        self._page_image_id = self.canvas.create_image(0, 0, anchor="nw", image=self.tk_image)
 
-        # 设置Canvas滚动区域
-        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
-
-        # 绑定鼠标事件
-        self.canvas.bind("<Button-1>", self._on_canvas_press)
-        self.canvas.bind("<B1-Motion>", self._on_canvas_drag)
-        self.canvas.bind("<ButtonRelease-1>", self._on_canvas_release)
-        self.canvas.bind("<Double-Button-1>", self._on_canvas_double_click)
-        self.canvas.bind("<MouseWheel>", self._on_mouse_wheel)
-
-        # 显示当前页面的批注
         self._normalize_markers(self.current_page)
+        self._layout_page_in_canvas()
         self._show_annotations()
 
-        # 页面导航（放在底部）
-        self._create_page_navigation()
+        bbox = self.canvas.bbox("all")
+        if bbox:
+            x1, y1, x2, y2 = bbox
+            region = self.canvas.cget("scrollregion").split()
+            if len(region) == 4:
+                rw, rh = float(region[2]), float(region[3])
+                self.canvas.configure(
+                    scrollregion=(
+                        min(0, x1),
+                        min(0, y1),
+                        max(rw, x2),
+                        max(rh, y2),
+                    )
+                )
 
-        # 更新页面信息
         self.page_label.configure(text=f"{self.current_page + 1} / {self.total_pages}")
-
-        # 更新批注列表
+        self.zoom_label.configure(text=f"{int(self.zoom_level * 100)}%")
         self._update_annotation_list()
         self.sync_web_preview()
-
-    def _create_page_navigation(self) -> None:
-        """创建页面导航（底部）"""
-        nav_frame = ctk.CTkFrame(self.preview_frame)
-        nav_frame.pack(fill="x", side="bottom", padx=5, pady=5)
-
-        # 缩放控制（左侧）
-        zoom_frame = ctk.CTkFrame(nav_frame)
-        zoom_frame.pack(side="left", padx=10)
-
-        zoom_out_btn = ctk.CTkButton(
-            zoom_frame,
-            text="-",
-            width=30,
-            command=self._zoom_out
-        )
-        zoom_out_btn.pack(side="left", padx=2)
-
-        self.zoom_label = ctk.CTkLabel(
-            zoom_frame,
-            text=f"{int(self.zoom_level * 100)}%",
-            width=50
-        )
-        self.zoom_label.pack(side="left", padx=5)
-
-        zoom_in_btn = ctk.CTkButton(
-            zoom_frame,
-            text="+",
-            width=30,
-            command=self._zoom_in
-        )
-        zoom_in_btn.pack(side="left", padx=2)
-
-        # 页面导航（中间）
-        self.prev_btn = ctk.CTkButton(
-            nav_frame,
-            text="◀ 上一页",
-            command=self._prev_page,
-            width=100
-        )
-        self.prev_btn.pack(side="left", padx=20)
-
-        self.page_label = ctk.CTkLabel(
-            nav_frame,
-            text=f"{self.current_page + 1} / {self.total_pages}",
-            font=("Arial", 14, "bold")
-        )
-        self.page_label.pack(side="left", expand=True)
-
-        self.next_btn = ctk.CTkButton(
-            nav_frame,
-            text="下一页 ▶",
-            command=self._next_page,
-            width=100
-        )
-        self.next_btn.pack(side="right", padx=20)
 
     def _show_annotations(self) -> None:
         """显示当前页面的批注（小标记 + 双击弹层）"""
@@ -759,7 +952,11 @@ class App(ctk.CTk):
 
         self.canvas.delete("annotation")
         markers = self.annotations.get(self.current_page, [])
-        canvas_w = self.page_image.width if self.page_image else 2000
+        canvas_w = (
+            self._page_offset_x + self.page_image.width
+            if self.page_image
+            else 2000
+        )
 
         for idx, marker in enumerate(markers, start=1):
             x, y = self._marker_to_canvas(marker)
@@ -768,8 +965,8 @@ class App(ctk.CTk):
             marker.icon_rect = (x, y, x + size, y + size)
             rect_id = self.canvas.create_rectangle(
                 x, y, x + size, y + size,
-                fill="#ffe066",
-                outline=marker.color,
+                fill=UITheme.MARKER_FILL,
+                outline=marker.color or UITheme.MARKER_OUTLINE_DEFAULT,
                 width=2,
                 tags="annotation",
             )
@@ -777,7 +974,7 @@ class App(ctk.CTk):
                 x + size / 2, y + size / 2,
                 text=str(idx),
                 anchor="center",
-                fill="#333333",
+                fill=UITheme.POPUP_TEXT,
                 font=("Arial", 10, "bold"),
                 tags="annotation",
             )
@@ -798,46 +995,96 @@ class App(ctk.CTk):
             marker.popup_x = px
             marker.popup_y = y
             marker.popup_rect = (px, y, px + pw, y + ph)
-            marker.close_rect = (px + pw - 28, y + 6, px + pw - 6, y + 28)
+            marker.close_rect = None
 
             self.canvas.create_rectangle(
                 px + 3, y + 3, px + pw + 3, y + ph + 3,
-                fill="#cccccc",
+                fill=UITheme.POPUP_SHADOW,
                 outline="",
                 tags="annotation",
             )
-            self.canvas.create_rectangle(
-                px, y, px + pw, y + ph,
-                fill="#fffbe6",
-                outline=marker.color,
-                width=2,
-                tags="annotation",
-            )
-            self.canvas.create_text(
-                px + 12, y + 16,
-                text=f"批注 {idx}",
-                anchor="w",
-                fill=marker.color,
-                font=("Microsoft YaHei", 11, "bold"),
-                tags="annotation",
-            )
-            self.canvas.create_text(
-                px + pw - 16, y + 16,
-                text="✕",
-                anchor="center",
-                fill=marker.color,
-                font=("Arial", 11, "bold"),
-                tags="annotation",
-            )
-            self.canvas.create_text(
-                px + 12, y + 36,
-                text=marker.text,
+
+            popup_host = self._build_annotation_popup(marker, idx, pw, ph)
+            marker.popup_window_id = self.canvas.create_window(
+                px,
+                y,
+                window=popup_host,
                 anchor="nw",
-                fill="#222222",
-                font=("Microsoft YaHei", 10),
-                width=pw - 24,
+                width=pw,
+                height=ph,
                 tags="annotation",
             )
+
+    def _build_annotation_popup(
+        self, marker: AnnotationMarker, idx: int, pw: int, ph: int
+    ) -> ctk.CTkFrame:
+        """固定尺寸弹层容器，正文在框内滚动，避免超出白框"""
+        outline = marker.color or UITheme.MARKER_OUTLINE_DEFAULT
+
+        def on_close() -> None:
+            marker.collapse()
+            self.selected_marker = None
+            self._show_annotations()
+            self._update_annotation_list()
+
+        host = ctk.CTkFrame(
+            self.canvas,
+            width=pw,
+            height=ph,
+            fg_color=UITheme.POPUP_BG,
+            border_color=outline,
+            border_width=2,
+            corner_radius=UITheme.RADIUS,
+        )
+        host.pack_propagate(False)
+        host.grid_propagate(False)
+
+        header = ctk.CTkFrame(host, fg_color="transparent", height=AnnotationMarker.TITLE_AREA)
+        header.pack(fill="x", padx=8, pady=(6, 0))
+        header.pack_propagate(False)
+
+        ctk.CTkLabel(
+            header,
+            text=f"批注 {idx}",
+            font=UITheme.font_section(),
+            text_color=outline,
+        ).pack(side="left", padx=4)
+
+        close_btn = ctk.CTkButton(
+            header,
+            text="✕",
+            width=28,
+            height=28,
+            corner_radius=UITheme.RADIUS_SM,
+            fg_color=UITheme.PURPLE_100,
+            hover_color=UITheme.PURPLE_200,
+            text_color=outline,
+            command=on_close,
+        )
+        close_btn.pack(side="right", padx=2)
+        marker.close_rect = None
+
+        body_h = max(
+            ph - AnnotationMarker.TITLE_AREA - AnnotationMarker.POPUP_PADDING,
+            48,
+        )
+        text_box = ctk.CTkTextbox(
+            host,
+            height=body_h,
+            wrap="word",
+            font=UITheme.font_body(),
+            fg_color=UITheme.POPUP_BG,
+            text_color=UITheme.POPUP_TEXT,
+            border_width=0,
+            activate_scrollbars=True,
+        )
+        text_box.pack(fill="both", expand=True, padx=10, pady=(2, 10))
+        UITheme.style_textbox(text_box)
+        text_box.configure(fg_color=UITheme.POPUP_BG, border_width=0)
+        text_box.insert("1.0", marker.text)
+        text_box.configure(state="disabled")
+
+        return host
 
     def _point_in_rect(self, x: float, y: float, rect) -> bool:
         if not rect:
@@ -943,7 +1190,9 @@ class App(ctk.CTk):
         clicked_marker = self._find_marker_at(x, y)
 
         if clicked_marker:
-            if clicked_marker.is_expanded and self._point_in_rect(x, y, clicked_marker.close_rect):
+            if clicked_marker.is_expanded and clicked_marker.close_rect and self._point_in_rect(
+                x, y, clicked_marker.close_rect
+            ):
                 clicked_marker.collapse()
                 self.selected_marker = None
                 self._show_annotations()
@@ -984,14 +1233,6 @@ class App(ctk.CTk):
         else:
             self._expand_marker(marker)
 
-    def _on_mouse_wheel(self, event) -> str:
-        """鼠标滚轮缩放（仅 PDF 预览区）"""
-        if event.delta > 0:
-            self._zoom_in()
-        else:
-            self._zoom_out()
-        return "break"
-
     def _add_annotation_mode(self) -> None:
         """进入添加批注模式"""
         self._adding_annotation = True
@@ -1026,12 +1267,12 @@ class App(ctk.CTk):
     def _save_annotation(self) -> None:
         """保存批注内容"""
         if not self.selected_marker:
-            messagebox.showwarning("警告", "请先选择一个批注")
+            show_warning(self, "警告", "请先选择一个批注")
             return
 
         text = self.annotation_input.get("1.0", "end-1c")
         if not text.strip():
-            messagebox.showwarning("警告", "批注内容不能为空")
+            show_warning(self, "警告", "批注内容不能为空")
             return
 
         self.selected_marker.text = text
@@ -1047,7 +1288,7 @@ class App(ctk.CTk):
     def _delete_annotation(self) -> None:
         """删除批注"""
         if not self.selected_marker:
-            messagebox.showwarning("警告", "请先选择一个批注")
+            show_warning(self, "警告", "请先选择一个批注")
             return
 
         markers = self.annotations.get(self.current_page, [])
@@ -1077,35 +1318,40 @@ class App(ctk.CTk):
 
         markers = self.annotations.get(self.current_page, [])
 
+        list_pad = UITheme.PAD_SM
         for idx, marker in enumerate(markers):
-            frame = ctk.CTkFrame(self.annotation_list)
-            frame.pack(fill="x", pady=2)
+            frame = ctk.CTkFrame(self.annotation_list, fg_color="transparent", cursor="hand2")
+            frame.pack(fill="x", pady=3, padx=0)
+            frame.bind("<Button-1>", lambda _e, m=marker: self._select_marker(m))
+            UITheme.style_annotation_row(frame, selected=(marker == self.selected_marker))
 
-            # 颜色指示器
+            inner = ctk.CTkFrame(frame, fg_color="transparent", cursor="hand2")
+            inner.pack(fill="x", padx=list_pad, pady=6)
+            inner.bind("<Button-1>", lambda _e, m=marker: self._select_marker(m))
+            inner.grid_columnconfigure(1, weight=1)
+
             color_indicator = ctk.CTkLabel(
-                frame,
+                inner,
                 text="●",
                 text_color=marker.color,
-                font=("Arial", 16)
+                font=("Arial", 16),
+                width=20,
             )
-            color_indicator.pack(side="left", padx=5)
+            color_indicator.grid(row=0, column=0, padx=(0, 6), sticky="w")
+            color_indicator.bind("<Button-1>", lambda _e, m=marker: self._select_marker(m))
 
-            # 批注内容预览
-            preview_text = marker.text[:30] + "..." if len(marker.text) > 30 else marker.text
-            text_label = ctk.CTkButton(
-                frame,
+            preview_text = format_annotation_list_preview(marker.text)
+            text_label = ctk.CTkLabel(
+                inner,
                 text=preview_text,
                 anchor="w",
-                fg_color="transparent",
-                text_color=("gray10", "gray90"),
-                hover_color=("gray70", "gray30"),
-                command=lambda m=marker: self._select_marker(m)
+                justify="left",
+                font=UITheme.font_body(),
+                text_color=UITheme.TEXT,
+                cursor="hand2",
             )
-            text_label.pack(side="left", fill="x", expand=True, padx=5)
-
-            # 高亮选中的批注
-            if marker == self.selected_marker:
-                frame.configure(fg_color=("gray80", "gray20"))
+            text_label.grid(row=0, column=1, sticky="ew")
+            text_label.bind("<Button-1>", lambda _e, m=marker: self._select_marker(m))
 
     def _prev_page(self) -> None:
         """上一页"""
@@ -1165,7 +1411,8 @@ class App(ctk.CTk):
         has_annotations = bool(self.annotations_by_file.get(key))
 
         if has_annotations:
-            if not messagebox.askyesno(
+            if not ask_yes_no(
+                self,
                 "确认移除",
                 f"确定从列表中移除「{file_name}」吗？\n该文件的批注也会一并删除（不会删除磁盘上的原文件）。",
             ):
@@ -1191,8 +1438,7 @@ class App(ctk.CTk):
                 self.annotations = {}
                 self.selected_marker = None
 
-                for widget in self.preview_frame.winfo_children():
-                    widget.destroy()
+                self._destroy_preview_shell()
                 self.file_hint.configure(text="导入文件")
 
         elif index < self.current_file_index:

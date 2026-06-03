@@ -1,6 +1,8 @@
 import customtkinter as ctk
 from typing import Optional
 from src.models.config import Settings
+from src.ui.theme import UITheme
+
 
 class SettingsDialog(ctk.CTkToplevel):
     """设置对话框"""
@@ -12,15 +14,21 @@ class SettingsDialog(ctk.CTkToplevel):
         self.result: Optional[Settings] = None
         
         # 配置窗口
-        self.title("设置")
+        self.title("系统 API 设置")
         self.geometry("500x600")
         self.resizable(False, False)
         
         # 模态对话框
         self.transient(master)
         self.grab_set()
-        
+
+        UITheme.apply_root(self)
+        from src.utils.branding import apply_window_icon
+
+        apply_window_icon(self)
+        self.after(50, lambda: apply_window_icon(self))
         self._create_widgets()
+        self._apply_theme()
     
     def _create_widgets(self) -> None:
         """创建设置组件"""
@@ -57,18 +65,50 @@ class SettingsDialog(ctk.CTkToplevel):
             command=self._on_cancel
         )
         self.cancel_btn.pack(side="right", padx=5)
+
+    def _apply_theme(self) -> None:
+        UITheme.style_tabview(self.tabview)
+        UITheme.style_card(self.button_frame, elevated=False)
+        UITheme.style_primary(self.save_btn)
+        UITheme.style_secondary(self.cancel_btn)
+        for seg in (
+            getattr(self, "provider_segment", None),
+            getattr(self, "mode_segment", None),
+            getattr(self, "detail_segment", None),
+            getattr(self, "theme_segment", None),
+            getattr(self, "language_segment", None),
+        ):
+            if seg is not None:
+                UITheme.style_segmented_panel(seg)
+        for frame in (
+            getattr(self, "openai_frame", None),
+            getattr(self, "ollama_frame", None),
+            getattr(self, "deepseek_frame", None),
+            getattr(self, "font_frame", None),
+        ):
+            if frame is not None:
+                UITheme.style_card(frame, elevated=False)
     
     def _create_llm_settings(self) -> None:
         """创建 LLM 设置"""
         # 提供商选择
         ctk.CTkLabel(self.llm_tab, text="LLM 提供商:").pack(anchor="w", padx=10, pady=5)
         
-        self.provider_var = ctk.StringVar(value=self.settings.llm.provider)
+        self._provider_value_map = {
+            "OpenAI": "openai",
+            "Ollama": "ollama",
+            "DeepSeek": "deepseek",
+        }
+        self._provider_label_map = {v: k for k, v in self._provider_value_map.items()}
+        initial_label = self._provider_label_map.get(
+            self.settings.llm.provider, "DeepSeek"
+        )
+        self.provider_var = ctk.StringVar(value=initial_label)
         self.provider_segment = ctk.CTkSegmentedButton(
             self.llm_tab,
-            values=["openai", "ollama", "deepseek"],
+            values=["OpenAI", "Ollama", "DeepSeek"],
             variable=self.provider_var,
-            command=self._on_provider_change
+            command=self._on_provider_change,
         )
         self.provider_segment.pack(fill="x", padx=10, pady=5)
         
@@ -119,8 +159,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self.deepseek_base_url_entry.pack(fill="x", padx=5, pady=2)
         self.deepseek_base_url_entry.insert(0, self.settings.llm.deepseek.base_url)
         
-        # 初始化显示状态
-        self._on_provider_change(self.settings.llm.provider)
+        self._on_provider_change(self.provider_var.get())
     
     def _create_annotation_settings(self) -> None:
         """创建批注设置"""
@@ -176,22 +215,25 @@ class SettingsDialog(ctk.CTkToplevel):
     
     def _on_provider_change(self, value: str) -> None:
         """切换提供商时显示对应的设置框架"""
-        # 隐藏所有框架
+        provider = getattr(self, "_provider_value_map", {}).get(value, value)
+
         self.openai_frame.pack_forget()
         self.ollama_frame.pack_forget()
         self.deepseek_frame.pack_forget()
-        
-        # 显示选中的框架
-        if value == "openai":
+
+        if provider == "openai":
             self.openai_frame.pack(fill="x", padx=10, pady=5)
-        elif value == "ollama":
+        elif provider == "ollama":
             self.ollama_frame.pack(fill="x", padx=10, pady=5)
-        elif value == "deepseek":
+        elif provider == "deepseek":
             self.deepseek_frame.pack(fill="x", padx=10, pady=5)
     
     def _on_save(self) -> None:
         """保存设置"""
-        self.settings.llm.provider = self.provider_var.get()
+        label = self.provider_var.get()
+        self.settings.llm.provider = getattr(self, "_provider_value_map", {}).get(
+            label, label.lower()
+        )
         self.settings.llm.openai.api_key = self.api_key_entry.get()
         self.settings.llm.openai.model = self.model_entry.get()
         self.settings.llm.ollama.base_url = self.base_url_entry.get()

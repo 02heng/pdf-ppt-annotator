@@ -1,6 +1,7 @@
 import customtkinter as ctk
 from tkinter import filedialog
 from typing import List, Callable
+from src.ui.theme import UITheme
 from src.utils.file_utils import is_supported_file
 
 
@@ -29,8 +30,12 @@ class FilePanel(ctk.CTkFrame):
         )
         self.import_btn.pack(pady=5)
 
-        self.file_list = ctk.CTkScrollableFrame(self)
+        self.file_list = ctk.CTkScrollableFrame(
+            self,
+            **UITheme.scrollable_frame_kwargs(),
+        )
         self.file_list.pack(fill="both", expand=True, padx=10, pady=5)
+        UITheme.style_scrollable_frame(self.file_list)
 
         self.process_btn = ctk.CTkButton(
             self,

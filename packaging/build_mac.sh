@@ -7,6 +7,9 @@ cd "$ROOT"
 
 echo "==> 项目目录: $ROOT"
 
+echo "==> 生成应用图标..."
+python3 scripts/generate_app_icons.py
+
 echo "==> 安装打包依赖..."
 python3 -m pip install -r requirements-build.txt -q
 

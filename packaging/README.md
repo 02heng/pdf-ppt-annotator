@@ -2,6 +2,24 @@
 
 用户安装后**无需**安装 Python 或任何 pip 库。发布包内只有编译后的可执行文件与依赖，**不包含** `.py` 源码。
 
+## 品牌图标
+
+与 [AI-writer-master](https://github.com) 类似，图标由脚本从品牌图生成（本项目用 Pillow 绘制紫渐变 PDF+批注图标）：
+
+```bash
+python scripts/generate_app_icons.py
+```
+
+| 文件 | 用途 |
+|------|------|
+| `assets/branding/icon.ico` | Windows  exe / 任务栏 / Inno Setup 安装包 |
+| `assets/branding/icon.png` | macOS `.app`、通用 512×512 |
+| `assets/branding/logo.svg` | 矢量源稿（可改后重新运行脚本） |
+| `src/web/favicon.png` | 浏览器预览页标签图标 |
+| `src/web/brand-logo.png` | Web 顶栏、桌面顶栏小图 |
+
+打包前 `build_windows.ps1` / CI 会自动执行上述脚本。
+
 ## GitHub Actions 自动打包（推荐）
 
 在 GitHub 云端同时构建 Windows 与 macOS，无需本机双平台环境。

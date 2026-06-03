@@ -1,6 +1,7 @@
 import customtkinter as ctk
 from typing import List
 from src.models.annotation import Annotation
+from src.ui.theme import UITheme
 
 class SidebarPanel(ctk.CTkFrame):
     """批注侧边栏"""
@@ -29,8 +30,12 @@ class SidebarPanel(ctk.CTkFrame):
         self.search_entry.bind("<KeyRelease>", lambda e: self._on_search())
         
         # 批注列表
-        self.scroll_frame = ctk.CTkScrollableFrame(self)
+        self.scroll_frame = ctk.CTkScrollableFrame(
+            self,
+            **UITheme.scrollable_frame_kwargs(),
+        )
         self.scroll_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        UITheme.style_scrollable_frame(self.scroll_frame)
         
         # 批注卡片容器
         self.annotation_cards = []

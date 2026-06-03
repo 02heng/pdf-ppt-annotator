@@ -18,6 +18,12 @@ Set-Location $Root
 
 Write-Host "==> 项目目录: $Root"
 
+Write-Host "==> 生成应用图标 (assets/branding/icon.ico)..."
+python scripts/generate_app_icons.py
+if (-not (Test-Path (Join-Path $Root "assets\branding\icon.ico"))) {
+    throw "图标生成失败：请先运行 python scripts/generate_app_icons.py"
+}
+
 Write-Host "==> 安装打包依赖..."
 python -m pip install -r requirements-build.txt -q
 

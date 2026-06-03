@@ -92,10 +92,18 @@ def render_all_pages_for_annotation(
     source_path: str = "",
     dpi: int = 150,
     on_progress: Optional[Callable[[int, int], None]] = None,
+    start_page: int = 0,
+    end_page: Optional[int] = None,
 ) -> List[PageImageData]:
-    """将文档每一页渲染为 PNG base64，供模型视觉阅读"""
+    """将文档页面渲染为 PNG base64；可选 start_page/end_page（0-based，含端点）"""
+    last = total_pages - 1 if end_page is None else min(end_page, total_pages - 1)
+    first = max(0, start_page)
+    if first > last:
+        return []
+
+    job_total = last - first + 1
     pages: List[PageImageData] = []
-    for page_num in range(total_pages):
+    for page_num in range(first, last + 1):
         png_bytes, image_b64, width, height = render_page_for_annotation(
             page_num,
             pdf_path=pdf_path,
@@ -119,7 +127,7 @@ def render_all_pages_for_annotation(
             )
         )
         if on_progress:
-            on_progress(page_num + 1, total_pages)
+            on_progress(page_num - first + 1, job_total)
     return pages
 
 

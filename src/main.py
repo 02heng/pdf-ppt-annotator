@@ -1,6 +1,7 @@
 import yaml
 from src.models.config import Settings
 from src.ui.ctk_patch import apply_ctk_patches
+from src.ui.theme import UITheme
 from src.ui.app import App
 from src.utils.runtime import get_default_config_path, get_local_config_path
 
@@ -43,6 +44,7 @@ def save_config(settings: Settings) -> None:
 def main():
     """主函数"""
     apply_ctk_patches()
+    UITheme.install()
     settings = load_config()
     app = App(settings)
     app.mainloop()

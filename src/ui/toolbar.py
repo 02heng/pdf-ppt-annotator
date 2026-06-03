@@ -1,111 +1,99 @@
 import customtkinter as ctk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
+
+from src.ui.message_dialog import ask_page_range, ask_yes_no, show_info, show_warning
 from datetime import datetime
 import os
 import threading
 from typing import Optional
 
+from src.ui.theme import UITheme
+from src.ui.chrome import GradientToolbar
+from src.utils.branding import load_toolbar_logo_ctk
 
-class Toolbar(ctk.CTkFrame):
-    """工具栏"""
+
+class Toolbar(GradientToolbar):
+    """渐变顶栏 + 分组操作"""
 
     def __init__(self, master, **kwargs):
         super().__init__(master, **kwargs)
-        self.app = master  # 保存主应用引用
+        self.app = master
         self._annotating = False
         self._create_widgets()
 
+    def _divider(self, parent) -> ctk.CTkFrame:
+        d = ctk.CTkFrame(parent, width=1, height=28)
+        d.pack(side="left", padx=10, pady=6)
+        UITheme.style_toolbar_divider(d)
+        d.pack_propagate(False)
+        return d
+
     def _create_widgets(self) -> None:
-        """创建工具栏按钮"""
-        # 导入按钮
-        self.import_btn = ctk.CTkButton(
-            self,
-            text="导入文件",
-            command=self._on_import
-        )
-        self.import_btn.pack(side="left", padx=5)
+        row = self.inner
+        pad = UITheme.PAD_SM
 
-        self.open_project_btn = ctk.CTkButton(
-            self,
-            text="打开工程",
-            command=self._on_open_project,
-        )
-        self.open_project_btn.pack(side="left", padx=5)
+        brand_row = ctk.CTkFrame(row, fg_color="transparent")
+        brand_row.pack(side="left", padx=(UITheme.PAD, pad))
+        logo = load_toolbar_logo_ctk(32)
+        if logo:
+            ctk.CTkLabel(brand_row, text="", image=logo, width=32).pack(
+                side="left", padx=(0, 6)
+            )
+        self.brand = ctk.CTkLabel(brand_row, text="TO PDF · 中文批注")
+        self.brand.pack(side="left")
+        UITheme.style_toolbar_brand(self.brand)
+        self._divider(row)
 
-        self.save_project_btn = ctk.CTkButton(
-            self,
-            text="保存工程",
-            command=self._on_save_project,
-            fg_color="#2980b9",
-            hover_color="#2471a3",
-        )
-        self.save_project_btn.pack(side="left", padx=5)
+        self.import_btn = ctk.CTkButton(row, text="导入", command=self._on_import)
+        self.import_btn.pack(side="left", padx=pad)
+        UITheme.style_toolbar_button(self.import_btn, primary=True)
 
-        # 开始批注按钮
-        self.annotate_btn = ctk.CTkButton(
-            self,
-            text="开始批注",
-            command=self._on_annotate,
-            fg_color="#2ecc71",
-            hover_color="#27ae60"
-        )
-        self.annotate_btn.pack(side="left", padx=5)
+        self.open_project_btn = ctk.CTkButton(row, text="打开工程", command=self._on_open_project)
+        self.open_project_btn.pack(side="left", padx=pad)
+        UITheme.style_toolbar_button(self.open_project_btn)
 
-        # 全部批注按钮
-        self.annotate_all_btn = ctk.CTkButton(
-            self,
-            text="全部批注",
-            command=self._on_annotate_all,
-            fg_color="#16a085",
-            hover_color="#138d75",
-        )
-        self.annotate_all_btn.pack(side="left", padx=5)
+        self.save_project_btn = ctk.CTkButton(row, text="保存工程", command=self._on_save_project)
+        self.save_project_btn.pack(side="left", padx=pad)
+        UITheme.style_toolbar_button(self.save_project_btn)
+        self._divider(row)
 
-        # 导出按钮
-        self.export_btn = ctk.CTkButton(
-            self,
-            text="导出",
-            command=self._on_export
-        )
-        self.export_btn.pack(side="left", padx=5)
+        self.annotate_btn = ctk.CTkButton(row, text="开始批注", command=self._on_annotate)
+        self.annotate_btn.pack(side="left", padx=pad)
+        UITheme.style_toolbar_button(self.annotate_btn, primary=True)
 
-        # 预览（PDF.js）
-        self.preview_btn = ctk.CTkButton(
-            self,
-            text="预览",
-            command=self._on_web_preview,
-            fg_color="#9b59b6",
-            hover_color="#8e44ad",
-        )
-        self.preview_btn.pack(side="left", padx=5)
+        self.annotate_all_btn = ctk.CTkButton(row, text="全部批注", command=self._on_annotate_all)
+        self.annotate_all_btn.pack(side="left", padx=pad)
+        UITheme.style_toolbar_button(self.annotate_all_btn)
+        self._divider(row)
 
-        # 批注模式切换
-        self.mode_var = ctk.StringVar(value="sidebar")
-        self.mode_switch = ctk.CTkSegmentedButton(
-            self,
-            values=["覆盖", "侧边栏"],
-            variable=self.mode_var,
-            command=self._on_mode_change
-        )
-        self.mode_switch.pack(side="left", padx=5)
+        self.export_btn = ctk.CTkButton(row, text="导出", command=self._on_export)
+        self.export_btn.pack(side="left", padx=pad)
+        UITheme.style_toolbar_button(self.export_btn)
 
-        # LLM 切换
-        self.llm_var = ctk.StringVar(value="openai")
-        self.llm_switch = ctk.CTkSegmentedButton(
-            self,
-            values=["OpenAI", "Ollama", "DeepSeek"],
-            variable=self.llm_var,
-            command=self._on_llm_change
-        )
-        self.llm_switch.pack(side="left", padx=5)
+        self.preview_btn = ctk.CTkButton(row, text="预览", command=self._on_web_preview)
+        self.preview_btn.pack(side="left", padx=pad)
+        UITheme.style_toolbar_button(self.preview_btn)
 
-        # 设置按钮
+        # 顶栏不展示「覆盖/侧边栏」「OpenAI/Ollama/DeepSeek」分段控件，改在系统 API 设置中配置
+        self._init_toolbar_state_vars()
+
         self.settings_btn = ctk.CTkButton(
-            self,
-            text="设置",
-            command=self._on_settings
+            row,
+            text="系统 API 设置",
+            width=140,
+            command=self._on_settings,
         )
-        self.settings_btn.pack(side="right", padx=5)
+        self.settings_btn.pack(side="right", padx=(pad, UITheme.PAD))
+        UITheme.style_toolbar_button(self.settings_btn, primary=True)
+
+    def _init_toolbar_state_vars(self) -> None:
+        """与配置文件同步（无顶栏分段控件时使用）"""
+        mode_map = {"overlay": "覆盖", "sidebar": "侧边栏"}
+        llm_map = {"openai": "OpenAI", "ollama": "Ollama", "deepseek": "DeepSeek"}
+        mode = getattr(self.app.settings.annotation, "mode", "sidebar")
+        provider = getattr(self.app.settings.llm, "provider", "openai")
+        self.mode_var = ctk.StringVar(value=mode_map.get(mode, "侧边栏"))
+        self.llm_var = ctk.StringVar(value=llm_map.get(provider, "OpenAI"))
 
     def _on_import(self) -> None:
         """导入文件"""
@@ -172,7 +160,7 @@ class Toolbar(ctk.CTkFrame):
             self.app.update_status(f"已打开工程: {name}")
         except Exception as e:
             self.app.update_status(f"打开工程失败: {str(e)}")
-            messagebox.showerror("错误", f"打开工程失败: {str(e)}")
+            show_warning(self.app, "错误", f"打开工程失败: {str(e)}")
 
     def _on_save_project(self) -> None:
         """保存工程（含 PDF 与批注，可拷贝到其他电脑打开）"""
@@ -206,7 +194,7 @@ class Toolbar(ctk.CTkFrame):
             self.app.update_status(f"工程已保存: {name}（含 PDF 与批注，可直接拷贝使用）")
         except Exception as e:
             self.app.update_status(f"保存工程失败: {str(e)}")
-            messagebox.showerror("错误", f"保存工程失败: {str(e)}")
+            show_warning(self.app, "错误", f"保存工程失败: {str(e)}")
 
     def _on_web_preview(self) -> None:
         """打开 PDF.js 批注预览"""
@@ -218,19 +206,19 @@ class Toolbar(ctk.CTkFrame):
     def _validate_annotate_ready(self) -> bool:
         """检查是否满足批注前置条件"""
         if not hasattr(self.app, "selected_files") or not self.app.selected_files:
-            messagebox.showwarning("警告", "请先导入文件")
+            show_warning(self.app, "警告", "请先导入文件")
             return False
 
         provider = self.app.settings.llm.provider
         if provider == "openai" and not self.app.settings.llm.openai.api_key:
-            messagebox.showwarning("警告", "请先在设置中配置 OpenAI API Key")
+            show_warning(self.app, "警告", "请先在设置中配置 OpenAI API Key")
             return False
         if provider == "deepseek" and not self.app.settings.llm.deepseek.api_key:
-            messagebox.showwarning("警告", "请先在设置中配置 DeepSeek API Key")
+            show_warning(self.app, "警告", "请先在设置中配置 DeepSeek API Key")
             return False
 
         if not self.app.pdf_doc:
-            messagebox.showwarning("警告", "请先导入 PDF 或 PPT 文件")
+            show_warning(self.app, "警告", "请先导入 PDF 或 PPT 文件")
             return False
 
         return True
@@ -291,8 +279,11 @@ class Toolbar(ctk.CTkFrame):
         *,
         document_context: str = "",
         total_pages: int = 0,
+        page_image=None,
+        use_multi_agent: bool = False,
+        cache_friendly: bool = False,
     ):
-        """单页批注（与「开始批注」相同流程，可选附带全局文档理解）"""
+        """单页批注；use_multi_agent 时走四智能体；cache_friendly 时走前缀稳定单模型"""
         from src.models.page import Page
 
         page = self.app.pdf_doc[page_num]
@@ -309,6 +300,9 @@ class Toolbar(ctk.CTkFrame):
             source_path=source_path,
             document_context=document_context,
             total_pages=total_pages or self.app.total_pages,
+            page_image=page_image,
+            multi_agent=use_multi_agent,
+            cache_friendly=cache_friendly,
         )
 
     def _on_annotate(self) -> None:
@@ -320,7 +314,7 @@ class Toolbar(ctk.CTkFrame):
 
         current_page = self.app.current_page
         if current_page < 0 or current_page >= self.app.total_pages:
-            messagebox.showwarning("警告", "请选择一个页面")
+            show_warning(self.app, "警告", "请选择一个页面")
             return
 
         self._annotating = True
@@ -367,8 +361,30 @@ class Toolbar(ctk.CTkFrame):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def _apply_annotations_to_page_ui(
+        self,
+        page_num: int,
+        annotations,
+        *,
+        done: int,
+        job_total: int,
+    ) -> int:
+        """主线程：写入批注并刷新界面（当前页立即显示标记）"""
+        count = self._apply_annotations_to_page(
+            page_num, annotations, replace=True
+        )
+        self.app._normalize_markers(page_num)
+        if page_num == self.app.current_page:
+            self.app._show_annotations()
+        self.app._update_annotation_list()
+        self.app.sync_web_preview()
+        self.app.update_status(
+            f"第 {page_num + 1} 页批注已生成（{done}/{job_total}）"
+        )
+        return count
+
     def _on_annotate_all(self) -> None:
-        """一键生成所有页批注"""
+        """批量生成批注：先选页码范围，生成一页即显示一页"""
         if self._annotating:
             return
         if not self._validate_annotate_ready():
@@ -376,13 +392,35 @@ class Toolbar(ctk.CTkFrame):
 
         total = self.app.total_pages
         if total <= 0:
-            messagebox.showwarning("警告", "没有可批注的页面")
+            show_warning(self.app, "警告", "没有可批注的页面")
+            return
+
+        page_range = ask_page_range(self.app, total)
+        if page_range is None:
+            return
+
+        start_page_1, end_page_1 = page_range
+        start_idx = start_page_1 - 1
+        end_idx = end_page_1 - 1
+        job_total = end_idx - start_idx + 1
+
+        if not ask_yes_no(
+            self.app,
+            "确认全部批注",
+            f"将对第 {start_page_1} 页到第 {end_page_1} 页（共 {job_total} 页）生成 AI 批注。\n\n"
+            "流程：渲染所选页 → 理解文档上下文 → 逐页批注；"
+            "每完成一页会立即显示在界面上。\n\n"
+            "确定要开始吗？",
+            width=480,
+        ):
             return
 
         self._annotating = True
         self._set_annotate_buttons_state(False)
-        self.app.update_status(f"正在批量生成批注，共 {total} 页...")
-        self.app.update_progress(0, total, "准备中...")
+        self.app.update_status(
+            f"正在批量生成批注：第 {start_page_1}–{end_page_1} 页（共 {job_total} 页）..."
+        )
+        self.app.update_progress(0, job_total, "准备中...")
 
         def worker():
             try:
@@ -391,25 +429,27 @@ class Toolbar(ctk.CTkFrame):
                 annotation_service = AnnotationService(self.app.settings.llm)
                 source_path = self.app.selected_files[self.app.current_file_index]
                 pdf_path = self.app.get_render_pdf_path(source_path)
+                pages_with_ann = 0
+                total_ann = 0
 
                 def update_progress(current: int, message: str) -> None:
                     self.app.after(
                         0,
                         lambda c=current, m=message: self.app.update_progress(
-                            c, total, m
+                            c, job_total, m
                         ),
                     )
 
-                update_progress(0, "正在将每页转为图片...")
+                update_progress(0, "正在将所选页转为图片...")
                 self.app.after(
                     0,
-                    lambda: self.app.update_status("正在渲染文档页面为图片（base64）..."),
+                    lambda: self.app.update_status("正在渲染所选页面为图片..."),
                 )
 
                 def on_render(current: int, render_total: int) -> None:
                     update_progress(
                         0,
-                        f"正在渲染第 {current}/{render_total} 页图片...",
+                        f"正在渲染 {current}/{render_total} 页图片...",
                     )
 
                 page_images = annotation_service.render_document_page_images(
@@ -418,13 +458,17 @@ class Toolbar(ctk.CTkFrame):
                     pdf_doc=self.app.pdf_doc,
                     source_path=source_path,
                     on_progress=on_render,
+                    start_page=start_idx,
+                    end_page=end_idx,
                 )
 
-                update_progress(0, "正在将整份文档交给模型理解...")
+                images_by_page = {img.page_number: img for img in page_images}
+
+                update_progress(0, "正在理解文档上下文...")
                 self.app.after(
                     0,
                     lambda: self.app.update_status(
-                        "模型正在理解整份文档的领域、主题与关键术语..."
+                        "正在通读所选页面并生成全局理解..."
                     ),
                 )
 
@@ -432,24 +476,26 @@ class Toolbar(ctk.CTkFrame):
                     page_images,
                     total_pages=total,
                     source_path=source_path,
+                    multi_agent=False,
+                    cache_friendly=True,
                 )
 
-                update_progress(0, "全局理解完成，开始逐页批注...")
+                update_progress(0, "全局理解完成，逐页批注...")
                 self.app.after(
                     0,
                     lambda: self.app.update_status(
-                        f"已理解文档背景，正在按单页批注流程处理（共 {total} 页）..."
+                        f"逐页批注中（第 {start_page_1}–{end_page_1} 页）..."
                     ),
                 )
 
-                page_results = []
-
-                for page_num in range(total):
+                for offset, page_num in enumerate(range(start_idx, end_idx + 1)):
+                    done = offset + 1
                     update_progress(
-                        page_num + 1,
-                        f"正在批注第 {page_num + 1}/{total} 页（单页流程）...",
+                        done,
+                        f"批注第 {page_num + 1} 页（{done}/{job_total}）...",
                     )
 
+                    page_img = images_by_page.get(page_num)
                     annotations = self._annotate_one_page(
                         annotation_service,
                         page_num,
@@ -457,28 +503,36 @@ class Toolbar(ctk.CTkFrame):
                         pdf_path,
                         document_context=document_context,
                         total_pages=total,
+                        page_image=page_img,
+                        use_multi_agent=False,
+                        cache_friendly=True,
                     )
                     if annotations:
-                        page_results.append((page_num, annotations))
+                        pages_with_ann += 1
+                        total_ann += len(annotations)
+
+                        def apply_now(
+                            p=page_num,
+                            ann=annotations,
+                            d=done,
+                        ):
+                            self._apply_annotations_to_page_ui(
+                                p, ann, done=d, job_total=job_total
+                            )
+
+                        self.app.after(0, apply_now)
 
                 def finish():
                     self._annotating = False
                     self._set_annotate_buttons_state(True)
-                    total_ann = 0
-                    for page_num, annotations in page_results:
-                        count = self._apply_annotations_to_page(
-                            page_num, annotations, replace=True
-                        )
-                        total_ann += count
-                    pages_with_ann = len(page_results)
-                    for page_num in range(total):
-                        self.app._normalize_markers(page_num)
-                    self.app.update_progress(total, total, "完成")
-                    self.app._show_annotations()
+                    self.app.update_progress(job_total, job_total, "完成")
+                    if self.app.current_page >= start_idx and self.app.current_page <= end_idx:
+                        self.app._show_annotations()
                     self.app._update_annotation_list()
                     self.app.sync_web_preview()
                     self.app.update_status(
-                        f"全部批注完成：{pages_with_ann}/{total} 页有批注，共 {total_ann} 条"
+                        f"批注完成：第 {start_page_1}–{end_page_1} 页，"
+                        f"{pages_with_ann}/{job_total} 页有批注，共 {total_ann} 条"
                     )
 
                 self.app.after(0, finish)
@@ -495,11 +549,11 @@ class Toolbar(ctk.CTkFrame):
     def _on_export(self) -> None:
         """导出文件"""
         if not hasattr(self.app, 'selected_files') or not self.app.selected_files:
-            messagebox.showwarning("警告", "没有可导出的文件，请先导入并批注文件")
+            show_warning(self.app, "警告", "没有可导出的文件，请先导入并批注文件")
             return
 
         if not self.app.pdf_doc:
-            messagebox.showwarning("警告", "请先导入PDF文件")
+            show_warning(self.app, "警告", "请先导入PDF文件")
             return
 
         # 检查是否有批注
@@ -508,7 +562,7 @@ class Toolbar(ctk.CTkFrame):
             pages for pages in self.app.annotations_by_file.values()
         ) or bool(self.app.annotations)
         if not has_annotations:
-            messagebox.showwarning("警告", "没有批注可导出，请先添加批注")
+            show_warning(self.app, "警告", "没有批注可导出，请先添加批注")
             return
 
         # 默认文件名：原文件名_时间戳
@@ -588,13 +642,14 @@ class Toolbar(ctk.CTkFrame):
 
         if dialog.result:
             self.app.settings = dialog.result
-            
+            self._init_toolbar_state_vars()
+
             # 保存配置到文件
             try:
                 from src.main import save_config
                 save_config(self.app.settings)
                 self.app.update_status("设置已保存并持久化到文件")
-                messagebox.showinfo("成功", "设置已保存，API Key已持久化")
+                show_info(self.app, "成功", "设置已保存，API Key已持久化")
             except Exception as e:
                 self.app.update_status(f"设置已保存，但持久化失败: {str(e)}")
-                messagebox.showwarning("警告", f"设置已保存，但持久化到文件失败: {str(e)}")
+                show_warning(self.app, "警告", f"设置已保存，但持久化到文件失败: {str(e)}")
