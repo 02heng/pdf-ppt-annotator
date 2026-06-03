@@ -59,4 +59,4 @@ if ($Iscc) {
 }
 
 Write-Host ""
-Write-Host "完成。" -ForegroundColor Green
+Write-Host "Build finished." -ForegroundColor Green
