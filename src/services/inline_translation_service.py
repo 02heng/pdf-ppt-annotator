@@ -79,7 +79,8 @@ def generate_inline_markers_for_page(app, page_num: int, llm_config: LLMConfig) 
             _markers_for_block(block, zh, style, pw, ph, AnnotationMarker)
         )
 
-    page_lines = _page_line_positions(page)
+    # 与 blocks 一致（含图内 OCR），避免补译/对齐仍只看 PDF 文字层
+    page_lines = blocks
     markers = _fill_missing_line_translations(
         llm, markers, page_lines, style, pw, ph, AnnotationMarker
     )
@@ -271,6 +272,7 @@ def _collect_text_blocks(
         _merge_blocks,
         clear_page_ocr_cache,
         ensure_page_ocr_positions,
+        vision_native_for_inline,
     )
 
     blocks = _best_line_blocks_from_page(page)
@@ -291,20 +293,25 @@ def _collect_text_blocks(
         blocks = _dedupe_inline_line_blocks(blocks)
 
     text_paragraphs = len(blocks)
-    if text_paragraphs < 2:
+    use_vision = vision_native_for_inline(llm_config)
+    # 全模态（含小米 mimo-v2.5）每次原位翻译都重新识图，避免只译左侧正文、漏掉图表内文字
+    force_supplement = use_vision or text_paragraphs < 2
+    if force_supplement:
         clear_page_ocr_cache(app, page_num)
-        ocr_blocks = ensure_page_ocr_positions(
-            app,
-            page_num,
-            llm_config,
-            force=True,
-            text_layer_paragraphs=text_paragraphs,
-        )
-        if ocr_blocks:
-            merged = _merge_blocks(blocks, ocr_blocks)
-            blocks = _split_multiline_blocks(merged)
-            blocks = _split_heuristic_long_lines(blocks)
-            blocks = _dedupe_inline_line_blocks(_filter_and_rank_blocks(blocks))
+
+    extra_blocks = ensure_page_ocr_positions(
+        app,
+        page_num,
+        llm_config,
+        force=force_supplement,
+        text_layer_paragraphs=text_paragraphs,
+    )
+    if extra_blocks:
+        merged = _merge_blocks(extra_blocks, blocks)
+        blocks = _split_multiline_blocks(merged)
+        blocks = _split_heuristic_long_lines(blocks)
+        blocks = _dedupe_inline_line_blocks(_filter_and_rank_blocks(blocks))
+        blocks = _dedupe_overlapping_blocks(blocks)
 
     return blocks[:MAX_BLOCKS_PER_PAGE]
 

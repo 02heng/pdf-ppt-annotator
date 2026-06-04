@@ -105,13 +105,19 @@ class VisionAnnotationService:
         self.config = config
 
     def supports_vision(self) -> bool:
-        return self.config.provider in ("openai", "ollama", "deepseek", "xiaomi")
+        return self.config.provider in (
+            "openai",
+            "ollama",
+            "deepseek",
+            "xiaomi",
+            "agnes",
+        )
 
     def ensure_vision_provider(self) -> None:
         if not self.supports_vision():
             raise RuntimeError(
-                "请使用 OpenAI（gpt-4o）、小米 MiMo（mimo-v2.5）、Ollama 视觉模型，"
-                "或 DeepSeek 视觉模型。"
+                "请使用 OpenAI（gpt-4o）、小米 MiMo（mimo-v2.5）、Agnes（agnes-2.0-flash）、"
+                "Ollama 视觉模型，或 DeepSeek 视觉模型。"
             )
 
     def _xiaomi_api_model(self) -> str:
@@ -127,7 +133,35 @@ class VisionAnnotationService:
         return any(k in name for k in ("vl", "vision", "janus"))
 
     def _uses_text_pipeline(self) -> bool:
+        """仅纯文本模型走 OCR/文字层；全模态提供商直接识图。"""
         return self.config.provider == "deepseek" and not self._deepseek_native_vision()
+
+    def _agnes_api_model(self) -> str:
+        from src.models.config import agnes_effective_model
+
+        return agnes_effective_model(self.config.agnes.model)
+
+    def _agnes_request_kwargs(self, *, thinking: bool) -> dict:
+        if not thinking:
+            return {}
+        return {
+            "extra_body": {"chat_template_kwargs": {"enable_thinking": True}},
+        }
+
+    def _call_text_pipeline_llm(
+        self,
+        content: str,
+        *,
+        thinking: bool = False,
+        log_cache_usage: bool = False,
+    ) -> str:
+        if self.config.provider == "agnes":
+            return self._call_agnes_text(content, thinking=thinking)
+        return self._call_deepseek_text(
+            content,
+            thinking=thinking,
+            log_cache_usage=log_cache_usage,
+        )
 
     def _deepseek_v4(self) -> bool:
         name = self._deepseek_model()
@@ -224,7 +258,7 @@ class VisionAnnotationService:
             if cache_friendly and self._uses_text_pipeline():
                 stable = f"{doc_prompt}\n\n全文共 {total_pages} 页。\n\n【各页内容】\n"
                 suffix = self._build_text_pages_block(page_images)
-                return self._call_deepseek_text(
+                return self._call_text_pipeline_llm(
                     stable + suffix,
                     thinking=True,
                     log_cache_usage=True,
@@ -247,7 +281,7 @@ class VisionAnnotationService:
                     self._build_text_pages_block(batch),
                 )
                 partials.append(
-                    self._call_deepseek_text(
+                    self._call_text_pipeline_llm(
                         stable + suffix,
                         thinking=True,
                         log_cache_usage=True,
@@ -275,7 +309,7 @@ class VisionAnnotationService:
             merge_user = build_merge_stable_prefix(
                 total_pages=total_pages
             ) + build_merge_suffix(partials)
-            return self._call_deepseek_text(
+            return self._call_text_pipeline_llm(
                 merge_user,
                 thinking=True,
                 log_cache_usage=True,
@@ -336,7 +370,7 @@ class VisionAnnotationService:
                         total_pages=total_pages,
                     )
                 prompt = f"{header}\n\n{page_body}"
-            return self._call_deepseek_text(
+            return self._call_text_pipeline_llm(
                 prompt,
                 thinking=thinking,
                 log_cache_usage=cache_friendly,
@@ -377,7 +411,7 @@ class VisionAnnotationService:
     ) -> str:
         if self._uses_text_pipeline():
             full = f"{prompt}\n\n{self._build_text_pages_block(pages)}"
-            return self._call_deepseek_text(full, thinking=thinking)
+            return self._call_text_pipeline_llm(full, thinking=thinking)
 
         if self.config.provider == "ollama":
             return self._call_ollama_vision_multi(
@@ -402,6 +436,8 @@ class VisionAnnotationService:
             return self._call_ollama_text(prompt)
         if provider == "xiaomi":
             return self._call_xiaomi_text(prompt)
+        if provider == "agnes":
+            return self._call_agnes_text(prompt, thinking=thinking)
         raise ValueError(f"不支持的 LLM 提供商: {provider}")
 
     def _deepseek_request_kwargs(self, *, thinking: bool) -> dict:
@@ -541,6 +577,21 @@ class VisionAnnotationService:
             max_tokens=cfg.max_tokens,
             content=content,
         )
+
+    def _call_agnes_text(self, content: str, *, thinking: bool = False) -> str:
+        cfg = self.config.agnes
+        client = OpenAI(
+            api_key=cfg.api_key,
+            base_url=(cfg.base_url or "https://apihub.agnes-ai.com/v1").rstrip("/"),
+        )
+        response = client.chat.completions.create(
+            model=self._agnes_api_model(),
+            temperature=cfg.temperature,
+            max_tokens=cfg.max_tokens,
+            messages=[{"role": "user", "content": content}],
+            **self._agnes_request_kwargs(thinking=thinking),
+        )
+        return (response.choices[0].message.content or "").strip()
 
     def _call_deepseek_text(
         self,

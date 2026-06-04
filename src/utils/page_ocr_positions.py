@@ -23,18 +23,23 @@ MIN_OCR_BLOCKS_TARGET = 12
 VISION_OCR_MIN_BLOCKS = 15
 TEXT_PARAGRAPHS_SKIP_IMAGE_OCR = 5
 
-VISION_OCR_BLOCKS_PROMPT = """你是 OCR 引擎。识别图中每一处可见英文/中文文字（含图表标题、坐标轴标签、图例、流程框内文字、箭头旁说明）。
-务必识别图表主体区域内的所有词组，不要只识别页眉标题。
+VISION_OCR_BLOCKS_PROMPT = """你是文档页面文字定位引擎。识别整张幻灯片/PDF页面上每一处可见英文（含图表内文字）。
 
-【分行规则 — 必须遵守】
-1. 画面上独立的一行文字 = JSON 数组中的一个块，不要合并。
-2. 编号列表、项目符号列表：每一项单独一块（如「1. Welcome」「2. Introduction」各一项）。
-3. 仅当多行在视觉上属于同一段落（自动换行、句子被折行）时，才可合并为一个块；合并时 text 内用换行符 \\n 保留行结构。
-4. 不要把目录、列表、多行要点压成一段长文。
+【图表 — 必须逐项列出】
+折线图、坐标图、流程图、表格中的文字必须单独成块，例如：
+- 坐标轴名：Costs、Volume
+- 每条曲线旁标签：Fixed-position、Functional、Cell、Line
+- 分区标题：Use fixed-position、Use functional、Use cell、Use line
+不得把整张图合并成一块；每个可见英文词组各一块，x/y/width/height 必须框住该词在画面中的真实位置。
+
+【分行规则】
+1. 独立一行 = 一个块；列表每一项单独一块。
+2. 仅同一段落自动折行才可合并为一个块（text 内用 \\n）。
+3. 不要漏掉页面中部、右侧大图区域内的文字。
 
 返回 JSON 数组，每项：
 {"text":"原文","x":0.12,"y":0.34,"width":0.08,"height":0.02}
-x,y,width,height 为相对整图宽高的比例（0~1，左上为原点）。不要 Markdown，只输出 JSON 数组。"""
+x,y,width,height 为相对整页宽高的比例（0~1，左上为原点）。只输出 JSON 数组，不要 Markdown。"""
 
 
 def _scale_blocks_to_pdf(
@@ -197,6 +202,19 @@ def _tesseract_usable() -> bool:
         return False
 
 
+def vision_native_for_inline(llm_config: Optional["LLMConfig"]) -> bool:
+    """当前配置是否用全模态识图代替 Tesseract/LiteParse OCR（原位翻译补块）。"""
+    if not _vision_ocr_usable(llm_config):
+        return False
+    provider = llm_config.provider
+    if provider in ("openai", "ollama", "xiaomi", "agnes"):
+        return True
+    if provider == "deepseek":
+        name = (llm_config.deepseek.model or "deepseek-v4-pro").lower()
+        return any(k in name for k in ("vl", "vision", "janus"))
+    return False
+
+
 def _vision_ocr_usable(llm_config: Optional["LLMConfig"]) -> bool:
     if not llm_config:
         return False
@@ -209,6 +227,8 @@ def _vision_ocr_usable(llm_config: Optional["LLMConfig"]) -> bool:
         return bool(llm_config.deepseek.api_key)
     if provider == "xiaomi":
         return bool(llm_config.xiaomi.api_key)
+    if provider == "agnes":
+        return bool(llm_config.agnes.api_key)
     return False
 
 
@@ -302,16 +322,62 @@ def _parse_vision_ocr_json(text: str, page_w: float, page_h: float) -> List[Dict
         h = float(item.get("height", 0.02))
         if w <= 1.5 and h <= 1.5:
             x, y, w, h = x * page_w, y * page_h, w * page_w, h * page_h
+        h = max(h, 8)
         out.append(
             {
                 "text": t,
                 "x": max(0, x),
                 "y": max(0, y),
                 "width": max(w, 8),
-                "height": max(h, 8),
+                "height": h,
+                "font_size": font_size_from_line_height(h),
             }
         )
     return out
+
+
+def _vision_extract_max_tokens(llm_config: "LLMConfig") -> int:
+    """图表页需返回大量 JSON 块，避免 MiMo 等模型输出被截断。"""
+    cap = 8192
+    if llm_config.provider == "xiaomi":
+        cap = max(cap, int(llm_config.xiaomi.max_tokens or 4096))
+    elif llm_config.provider == "openai":
+        cap = max(cap, int(llm_config.openai.max_tokens or 4096))
+    elif llm_config.provider == "agnes":
+        cap = max(cap, int(llm_config.agnes.max_tokens or 4096))
+    return min(cap, 16384)
+
+
+def extract_page_vision_blocks(
+    page: fitz.Page,
+    llm_config: "LLMConfig",
+) -> List[Dict[str, Any]]:
+    """整页渲染后由全模态模型返回带坐标的文字块（不用本地 OCR）。"""
+    page_w = page.rect.width
+    page_h = page.rect.height
+    zoom = OCR_DPI / 72.0
+    matrix = fitz.Matrix(zoom, zoom)
+    pix = page.get_pixmap(matrix=matrix, alpha=False)
+    image_b64 = base64.b64encode(pix.tobytes("png")).decode("utf-8")
+    blocks = _blocks_from_vision_llm(
+        image_b64,
+        page_w,
+        page_h,
+        llm_config,
+        max_tokens=_vision_extract_max_tokens(llm_config),
+    )
+    if len(blocks) < 8:
+        retry = _blocks_from_vision_llm(
+            image_b64,
+            page_w,
+            page_h,
+            llm_config,
+            max_tokens=_vision_extract_max_tokens(llm_config),
+            prompt_suffix="\n请特别补全图表区域（Costs、Volume、Fixed-position、Functional、Cell、Line、Use …）内每个英文标签，单独成块。",
+        )
+        if len(retry) > len(blocks):
+            blocks = retry
+    return blocks
 
 
 def _blocks_from_vision_llm(
@@ -319,6 +385,9 @@ def _blocks_from_vision_llm(
     page_w: float,
     page_h: float,
     llm_config: "LLMConfig",
+    *,
+    max_tokens: Optional[int] = None,
+    prompt_suffix: str = "",
 ) -> List[Dict[str, Any]]:
     try:
         from src.services.vision_annotation_service import VisionAnnotationService
@@ -327,19 +396,57 @@ def _blocks_from_vision_llm(
 
     svc = VisionAnnotationService(llm_config)
     provider = llm_config.provider
+    prompt = VISION_OCR_BLOCKS_PROMPT + (prompt_suffix or "")
+    tok = max_tokens or _vision_extract_max_tokens(llm_config)
     raw = ""
     try:
         if provider == "openai":
-            raw = svc._call_openai_vision_multi([image_b64], VISION_OCR_BLOCKS_PROMPT)
+            raw = svc._call_openai_compatible_vision(
+                api_key=llm_config.openai.api_key,
+                base_url="",
+                model=llm_config.openai.model,
+                temperature=llm_config.openai.temperature,
+                max_tokens=tok,
+                images_b64=[image_b64],
+                prompt=prompt,
+            )
         elif provider == "xiaomi":
-            raw = svc._call_xiaomi_vision_multi([image_b64], VISION_OCR_BLOCKS_PROMPT)
+            cfg = llm_config.xiaomi
+            raw = svc._call_openai_compatible_vision(
+                api_key=cfg.api_key,
+                base_url=cfg.base_url,
+                model=svc._xiaomi_api_model(),
+                temperature=cfg.temperature,
+                max_tokens=tok,
+                images_b64=[image_b64],
+                prompt=prompt,
+            )
         elif provider == "ollama":
-            raw = svc._call_ollama_vision_multi([image_b64], VISION_OCR_BLOCKS_PROMPT)
+            raw = svc._call_ollama_vision_multi([image_b64], prompt)
         elif provider == "deepseek":
             try:
-                raw = svc._call_openai_vision_multi([image_b64], VISION_OCR_BLOCKS_PROMPT)
+                raw = svc._call_openai_compatible_vision(
+                    api_key=llm_config.deepseek.api_key,
+                    base_url=llm_config.deepseek.base_url,
+                    model=llm_config.deepseek.model,
+                    temperature=llm_config.deepseek.temperature,
+                    max_tokens=tok,
+                    images_b64=[image_b64],
+                    prompt=prompt,
+                )
             except Exception:
                 raw = ""
+        elif provider == "agnes":
+            cfg = llm_config.agnes
+            raw = svc._call_openai_compatible_vision(
+                api_key=cfg.api_key,
+                base_url=cfg.base_url or "https://apihub.agnes-ai.com/v1",
+                model=svc._agnes_api_model(),
+                temperature=cfg.temperature,
+                max_tokens=tok,
+                images_b64=[image_b64],
+                prompt=prompt,
+            )
     except Exception:
         return []
 
@@ -398,9 +505,10 @@ def extract_page_ocr_blocks(
     blocks = _blocks_from_liteparse_image(png_bytes, page_w, page_h)
     blocks = _merge_blocks(blocks, _blocks_from_tesseract(png_bytes, page_w, page_h))
 
-    # 幻灯片常把正文放在页中下部（照片下方），对下半区再 OCR 一次
+    # 幻灯片/教材：页眉、中部大图、下半区正文 — 中部带覆盖常见坐标图与流程图
     bands = (
         (0.0, 0.0, 1.0, 0.38),
+        (0.05, 0.10, 0.95, 0.88),
         (0.0, 0.32, 1.0, 0.72),
         (0.0, 0.52, 1.0, 1.0),
     )
@@ -457,36 +565,59 @@ def ensure_page_ocr_positions(
     force: bool = False,
     text_layer_paragraphs: int = 0,
 ) -> List[Dict[str, Any]]:
-    """OCR 并缓存到 app.ocr_text_positions；force=True 时忽略旧缓存。"""
+    """识别页内文字块并缓存到 app.ocr_text_positions。全模态时走视觉识图，否则走本地 OCR。"""
     if not getattr(app, "ocr_text_positions", None):
         app.ocr_text_positions = {}
+    if not getattr(app, "ocr_text_sources", None):
+        app.ocr_text_sources = {}
+
+    use_vision = vision_native_for_inline(llm_config)
+    source_tag = "vision" if use_vision else "ocr"
 
     if not force and page_num in app.ocr_text_positions:
-        cached = app.ocr_text_positions.get(page_num)
-        if cached is not None:
-            return cached
+        if app.ocr_text_sources.get(page_num) == source_tag:
+            cached = app.ocr_text_positions.get(page_num)
+            if cached is not None:
+                return cached
+        clear_page_ocr_cache(app, page_num)
 
     if not app.pdf_doc or page_num < 0 or page_num >= app.total_pages:
         app.ocr_text_positions[page_num] = []
+        app.ocr_text_sources[page_num] = source_tag
         return []
 
-    if hasattr(app, "update_status"):
-        app.update_status(f"第 {page_num + 1} 页：正在 OCR 识别图表/图片中的文字...")
-
     page = app.pdf_doc[page_num]
-    blocks = extract_page_ocr_blocks(
-        page,
-        pdf_doc=app.pdf_doc,
-        page_num=page_num,
-        llm_config=llm_config,
-        use_vision_fallback=bool(llm_config),
-    )
+    if use_vision and llm_config:
+        if hasattr(app, "update_status"):
+            app.update_status(
+                f"第 {page_num + 1} 页：正在用全模态模型识别页面文字（含图表）..."
+            )
+        blocks = extract_page_vision_blocks(page, llm_config)
+    else:
+        if hasattr(app, "update_status"):
+            app.update_status(
+                f"第 {page_num + 1} 页：正在 OCR 识别图表/图片中的文字..."
+            )
+        blocks = extract_page_ocr_blocks(
+            page,
+            pdf_doc=app.pdf_doc,
+            page_num=page_num,
+            llm_config=llm_config,
+            use_vision_fallback=bool(llm_config),
+        )
+
     app.ocr_text_positions[page_num] = blocks
+    app.ocr_text_sources[page_num] = source_tag
     if hasattr(app, "update_status"):
         if blocks:
-            app.update_status(
-                f"第 {page_num + 1} 页图内 OCR 完成，识别 {len(blocks)} 处文字"
-            )
+            if use_vision:
+                app.update_status(
+                    f"第 {page_num + 1} 页视觉识图完成，识别 {len(blocks)} 处文字"
+                )
+            else:
+                app.update_status(
+                    f"第 {page_num + 1} 页图内 OCR 完成，识别 {len(blocks)} 处文字"
+                )
         elif text_layer_paragraphs >= TEXT_PARAGRAPHS_SKIP_IMAGE_OCR:
             pass
         else:
@@ -502,7 +633,11 @@ def ensure_page_ocr_positions(
 def clear_page_ocr_cache(app, page_num: Optional[int] = None) -> None:
     if not getattr(app, "ocr_text_positions", None):
         app.ocr_text_positions = {}
+    if not getattr(app, "ocr_text_sources", None):
+        app.ocr_text_sources = {}
     if page_num is None:
         app.ocr_text_positions.clear()
+        app.ocr_text_sources.clear()
     else:
         app.ocr_text_positions.pop(page_num, None)
+        app.ocr_text_sources.pop(page_num, None)

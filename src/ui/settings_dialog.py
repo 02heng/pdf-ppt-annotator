@@ -15,7 +15,7 @@ class SettingsDialog(ctk.CTkToplevel):
         
         # 配置窗口
         self.title("系统 API 设置")
-        self.geometry("500x600")
+        self.geometry("520x680")
         self.resizable(False, False)
         
         # 模态对话框
@@ -86,6 +86,7 @@ class SettingsDialog(ctk.CTkToplevel):
             getattr(self, "ollama_frame", None),
             getattr(self, "deepseek_frame", None),
             getattr(self, "xiaomi_frame", None),
+            getattr(self, "agnes_frame", None),
             getattr(self, "font_frame", None),
         ):
             if frame is not None:
@@ -101,6 +102,7 @@ class SettingsDialog(ctk.CTkToplevel):
             "Ollama": "ollama",
             "DeepSeek": "deepseek",
             "小米 MiMo": "xiaomi",
+            "Agnes": "agnes",
         }
         self._provider_label_map = {v: k for k, v in self._provider_value_map.items()}
         initial_label = self._provider_label_map.get(
@@ -109,7 +111,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self.provider_var = ctk.StringVar(value=initial_label)
         self.provider_segment = ctk.CTkSegmentedButton(
             self.llm_tab,
-            values=["OpenAI", "Ollama", "DeepSeek", "小米 MiMo"],
+            values=["OpenAI", "Ollama", "DeepSeek", "小米 MiMo", "Agnes"],
             variable=self.provider_var,
             command=self._on_provider_change,
         )
@@ -218,9 +220,50 @@ class SettingsDialog(ctk.CTkToplevel):
         ctk.CTkLabel(
             self.xiaomi_frame,
             text=(
-                "请填 mimo-v2.5（全模态）。若填 mimo-v2.5-pro，本应用仍会按 mimo-v2.5 调用 API。"
+                "请填 mimo-v2.5（全模态）。原位翻译会识整页图，在图表/正文旁各贴一行中文。"
+                "若填 mimo-v2.5-pro，本应用仍会按 mimo-v2.5 调用 API。"
                 "订阅 Base URL：token-plan-cn.xiaomimimo.com/v1"
             ),
+            font=ctk.CTkFont(size=11),
+            text_color="gray",
+            wraplength=420,
+        ).pack(anchor="w", padx=5, pady=(0, 6))
+
+        self.agnes_frame = ctk.CTkFrame(self.llm_tab)
+        self.agnes_frame.pack(fill="x", padx=10, pady=5)
+
+        ctk.CTkLabel(
+            self.agnes_frame,
+            text="在 Agnes 控制台获取 API Key：\nhttps://www.agnes-ai.com",
+            font=ctk.CTkFont(size=11),
+            text_color="gray",
+            wraplength=420,
+            justify="left",
+        ).pack(anchor="w", padx=5, pady=(0, 4))
+
+        ctk.CTkLabel(self.agnes_frame, text="API Key:").pack(anchor="w", padx=5, pady=2)
+        self.agnes_api_key_entry = ctk.CTkEntry(self.agnes_frame, show="*")
+        self.agnes_api_key_entry.pack(fill="x", padx=5, pady=2)
+        self.agnes_api_key_entry.insert(0, self.settings.llm.agnes.api_key)
+
+        ctk.CTkLabel(self.agnes_frame, text="模型:").pack(anchor="w", padx=5, pady=2)
+        self.agnes_model_entry = ctk.CTkEntry(self.agnes_frame)
+        self.agnes_model_entry.pack(fill="x", padx=5, pady=2)
+        self.agnes_model_entry.insert(0, self.settings.llm.agnes.model)
+
+        ctk.CTkLabel(self.agnes_frame, text="Base URL（OpenAI 兼容 /v1）:").pack(
+            anchor="w", padx=5, pady=2
+        )
+        self.agnes_base_url_entry = ctk.CTkEntry(self.agnes_frame)
+        self.agnes_base_url_entry.pack(fill="x", padx=5, pady=2)
+        self.agnes_base_url_entry.insert(
+            0,
+            (self.settings.llm.agnes.base_url or "https://apihub.agnes-ai.com/v1").strip(),
+        )
+
+        ctk.CTkLabel(
+            self.agnes_frame,
+            text="模型名请使用 agnes-2.0-flash；支持全模态识图，原位翻译与批注将直接读页面图片（无需本地 OCR）。",
             font=ctk.CTkFont(size=11),
             text_color="gray",
             wraplength=420,
@@ -303,6 +346,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self.ollama_frame.pack_forget()
         self.deepseek_frame.pack_forget()
         self.xiaomi_frame.pack_forget()
+        self.agnes_frame.pack_forget()
 
         if provider == "openai":
             self.openai_frame.pack(fill="x", padx=10, pady=5)
@@ -312,6 +356,8 @@ class SettingsDialog(ctk.CTkToplevel):
             self.deepseek_frame.pack(fill="x", padx=10, pady=5)
         elif provider == "xiaomi":
             self.xiaomi_frame.pack(fill="x", padx=10, pady=5)
+        elif provider == "agnes":
+            self.agnes_frame.pack(fill="x", padx=10, pady=5)
     
     def _on_save(self) -> None:
         """保存设置"""
@@ -333,6 +379,9 @@ class SettingsDialog(ctk.CTkToplevel):
         self.settings.llm.xiaomi.api_key = self.xiaomi_api_key_entry.get().strip()
         self.settings.llm.xiaomi.model = self.xiaomi_model_entry.get().strip()
         self.settings.llm.xiaomi.base_url = self.xiaomi_base_url_entry.get().strip()
+        self.settings.llm.agnes.api_key = self.agnes_api_key_entry.get().strip()
+        self.settings.llm.agnes.model = self.agnes_model_entry.get().strip()
+        self.settings.llm.agnes.base_url = self.agnes_base_url_entry.get().strip()
         self.settings.annotation.mode = self.mode_var.get()
         self.settings.annotation.detail_level = self.detail_var.get()
         self.settings.app.theme = self.theme_var.get()

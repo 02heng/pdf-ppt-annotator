@@ -27,4 +27,10 @@ llm:
     max_tokens: 4096
     model: gpt-4o
     temperature: 0.3
+  agnes:
+    api_key: ''
+    base_url: https://apihub.agnes-ai.com/v1
+    max_tokens: 4096
+    model: agnes-2.0-flash
+    temperature: 0.3
   provider: deepseek

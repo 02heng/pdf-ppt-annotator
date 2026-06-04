@@ -94,6 +94,7 @@ class Toolbar(GradientToolbar):
             "ollama": "Ollama",
             "deepseek": "DeepSeek",
             "xiaomi": "小米 MiMo",
+            "agnes": "Agnes",
         }
         mode = getattr(self.app.settings.annotation, "mode", "sidebar")
         provider = getattr(self.app.settings.llm, "provider", "openai")
@@ -227,6 +228,14 @@ class Toolbar(GradientToolbar):
                 "警告",
                 "请先在设置中配置小米 MiMo API Key\n"
                 "（Token Plan 订阅：在 plan-manage 页复制 tp- 密钥）",
+            )
+            return False
+        if provider == "agnes" and not self.app.settings.llm.agnes.api_key:
+            show_warning(
+                self.app,
+                "警告",
+                "请先在设置中配置 Agnes API Key\n"
+                "（在 agnes-ai.com 控制台获取）",
             )
             return False
 
@@ -756,6 +765,7 @@ class Toolbar(GradientToolbar):
             "Ollama": "ollama",
             "DeepSeek": "deepseek",
             "小米 MiMo": "xiaomi",
+            "Agnes": "agnes",
         }
         provider = provider_map.get(value, "openai")
         self.app.settings.llm.provider = provider

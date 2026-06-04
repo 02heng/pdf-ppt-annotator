@@ -11,7 +11,7 @@ class LLMService:
         self.provider = config.provider
         self._llm: Optional[LLM] = None
 
-        if self.provider not in ["openai", "ollama", "deepseek", "xiaomi"]:
+        if self.provider not in ["openai", "ollama", "deepseek", "xiaomi", "agnes"]:
             raise ValueError(f"不支持的 LLM 提供商: {self.provider}")
 
     @property
@@ -29,6 +29,8 @@ class LLMService:
             return self._create_deepseek_llm()
         elif self.provider == "xiaomi":
             return self._create_xiaomi_llm()
+        elif self.provider == "agnes":
+            return self._create_agnes_llm()
         else:
             raise ValueError(f"不支持的提供商: {self.provider}")
 
@@ -72,8 +74,21 @@ class LLMService:
             base_url=config.base_url.rstrip("/"),
         )
 
+    def _create_agnes_llm(self) -> LLM:
+        from src.models.config import agnes_effective_model
+
+        config = self.config.agnes
+        model = agnes_effective_model(config.model)
+        return LLM(
+            model=f"openai/{model}",
+            temperature=config.temperature,
+            max_tokens=config.max_tokens,
+            api_key=config.api_key,
+            base_url=config.base_url.rstrip("/"),
+        )
+
     def switch_provider(self, provider: str) -> None:
-        if provider not in ["openai", "ollama", "deepseek", "xiaomi"]:
+        if provider not in ["openai", "ollama", "deepseek", "xiaomi", "agnes"]:
             raise ValueError(f"不支持的提供商: {provider}")
         self.provider = provider
         self._llm = None

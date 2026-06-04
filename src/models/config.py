@@ -23,6 +23,23 @@ class DeepSeekConfig(BaseModel):
     base_url: str = "https://api.deepseek.com"
 
 
+class AgnesConfig(BaseModel):
+    """Agnes AI（OpenAI Chat Completions 兼容）https://www.agnes-ai.com/doc/agnes-20-flash"""
+    api_key: str = ""
+    model: str = "agnes-2.0-flash"
+    temperature: float = 0.3
+    max_tokens: int = 4096
+    base_url: str = "https://apihub.agnes-ai.com/v1"
+
+
+def agnes_effective_model(model: str = "") -> str:
+    """文档要求 model 固定为 agnes-2.0-flash。"""
+    name = (model or "agnes-2.0-flash").strip().lower()
+    if not name or name.startswith("agnes"):
+        return "agnes-2.0-flash"
+    return model.strip()
+
+
 class XiaomiMiMoConfig(BaseModel):
     """小米 MiMo API（OpenAI 兼容协议）"""
     api_key: str = ""
@@ -53,11 +70,12 @@ def xiaomi_effective_model(model: str = "") -> str:
 
 class LLMConfig(BaseModel):
     """LLM 配置"""
-    provider: str = "openai"  # openai / ollama / deepseek / xiaomi
+    provider: str = "openai"  # openai / ollama / deepseek / xiaomi / agnes
     openai: OpenAIConfig = Field(default_factory=OpenAIConfig)
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
     deepseek: DeepSeekConfig = Field(default_factory=DeepSeekConfig)
     xiaomi: XiaomiMiMoConfig = Field(default_factory=XiaomiMiMoConfig)
+    agnes: AgnesConfig = Field(default_factory=AgnesConfig)
 
 class AnnotationStyle(BaseModel):
     """批注样式配置"""

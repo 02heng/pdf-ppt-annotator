@@ -163,7 +163,8 @@ class App(ctk.CTk):
         self.page_image = None
         self.tk_image = None
         self.text_positions = {}  # LiteParse / PPTX 文本位置信息
-        self.ocr_text_positions: Dict[int, List[dict]] = {}  # 图表 OCR 缓存
+        self.ocr_text_positions: Dict[int, List[dict]] = {}  # 页内文字块缓存（视觉或 OCR）
+        self.ocr_text_sources: Dict[int, str] = {}  # 缓存来源：vision / ocr
         self.ppt_slide_emu: Tuple[int, int] = (9144000, 6858000)
         self._preview_shell_ready = False
         self._page_image_id = None
@@ -986,6 +987,7 @@ class App(ctk.CTk):
     def _load_pdf(self, file_path: str, page: int = None, load_text_positions: bool = True) -> None:
         """加载PDF文件并渲染为图片"""
         self.ocr_text_positions = {}
+        self.ocr_text_sources = {}
         try:
             import fitz  # PyMuPDF
 
