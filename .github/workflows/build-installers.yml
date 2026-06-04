@@ -82,7 +82,8 @@ jobs:
           if-no-files-found: error
 
   build-macos:
-    runs-on: macos-latest
+    # macos-14 = Apple Silicon (M1) runner，确保原生 arm64 构建
+    runs-on: macos-14
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -106,17 +107,25 @@ jobs:
             requirements.txt
             requirements-build.txt
 
+      - name: Verify Python architecture
+        run: |
+          python3 -c "import platform; print(f'Architecture: {platform.machine()}')"
+          python3 -c "import struct; print(f'Pointer size: {struct.calcsize(\"P\") * 8}-bit')"
+
       - name: Install build dependencies
-        run: python -m pip install -r requirements-build.txt
+        run: python3 -m pip install -r requirements-build.txt
 
       - name: Generate app icons
-        run: python scripts/generate_app_icons.py
+        run: python3 scripts/generate_app_icons.py
 
-      - name: Build application
-        run: python -m PyInstaller --noconfirm --clean packaging/TOPDFAnnotator.spec
+      - name: Build Universal Binary (Intel + Apple Silicon)
+        run: python3 -m PyInstaller --noconfirm --clean packaging/TOPDFAnnotator.spec
 
       - name: Verify build
-        run: test -d dist/TOPDFAnnotator.app
+        run: |
+          test -d dist/TOPDFAnnotator.app || { echo "TOPDFAnnotator.app not found"; exit 1; }
+          file dist/TOPDFAnnotator.app/Contents/MacOS/TOPDFAnnotator
+          lipo -info dist/TOPDFAnnotator.app/Contents/MacOS/TOPDFAnnotator || true
 
       - name: Create DMG
         run: |

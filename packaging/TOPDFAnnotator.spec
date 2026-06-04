@@ -13,7 +13,12 @@ APP_VERSION = (
     else "0.1.0"
 )
 
+import platform
+
 block_cipher = None
+
+# macOS Universal Binary：同时支持 Intel + Apple Silicon (M1/M2/M3/M4)
+_mac_arch = "universal2" if sys.platform == "darwin" else None
 
 _brand = ROOT / "assets" / "branding"
 _icon_ico = _brand / "icon.ico"
@@ -80,7 +85,7 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=sys.platform == "darwin",
-    target_arch=None,
+    target_arch=_mac_arch,
     codesign_identity=None,
     entitlements_file=None,
     icon=_win_icon,
@@ -111,5 +116,6 @@ if sys.platform == "darwin":
             "CFBundleShortVersionString": APP_VERSION,
             "CFBundleVersion": APP_VERSION,
             "NSHighResolutionCapable": True,
+            "LSMinimumSystemVersion": "11.0",
         },
     )
