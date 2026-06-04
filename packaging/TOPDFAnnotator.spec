@@ -17,8 +17,11 @@ import platform
 
 block_cipher = None
 
-# macOS Universal Binary：同时支持 Intel + Apple Silicon (M1/M2/M3/M4)
-_mac_arch = "universal2" if sys.platform == "darwin" else None
+# macOS 构建目标架构：
+# universal2 需要所有依赖均为 fat binary，PIL/PyMuPDF 等 C 扩展通常只有单架构
+# 因此在 Apple Silicon runner 上构建 arm64 版本（覆盖 M1/M2/M3/M4 全系列）
+import platform as _platform
+_mac_arch = "arm64" if sys.platform == "darwin" and _platform.machine() == "arm64" else None
 
 _brand = ROOT / "assets" / "branding"
 _icon_ico = _brand / "icon.ico"

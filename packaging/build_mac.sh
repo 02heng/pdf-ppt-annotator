@@ -17,7 +17,8 @@ python3 scripts/generate_app_icons.py
 echo "==> 安装打包依赖..."
 python3 -m pip install -r requirements-build.txt -q
 
-echo "==> PyInstaller 构建 Universal Binary (Intel + Apple Silicon) ..."
+ARCH="$(uname -m)"
+echo "==> PyInstaller 构建 macOS ${ARCH} 版本 ..."
 python3 -m PyInstaller --noconfirm --clean packaging/TOPDFAnnotator.spec
 
 APP_PATH="dist/TOPDFAnnotator.app"
