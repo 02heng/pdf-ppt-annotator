@@ -2,7 +2,7 @@
 ; 需先运行 build_windows.ps1，再在本机安装 Inno Setup 6 后编译此脚本
 
 #ifndef MyAppVersion
-  #define MyAppVersion "0.1.3"
+  #define MyAppVersion "0.1.4"
 #endif
 #define MyAppName "TO PDF 批注工具"
 #define MyAppPublisher "TO PDF"

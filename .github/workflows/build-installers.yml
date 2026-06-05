@@ -115,10 +115,17 @@ jobs:
       - name: Install build dependencies
         run: python3 -m pip install -r requirements-build.txt
 
+      - name: Install x86_64 wheels for cross-compilation
+        run: |
+          python3 -m pip install --force-reinstall --no-deps \
+            --platform macosx_10_9_x86_64 --only-binary=:all: \
+            Pillow numpy PyMuPDF lxml regex pypdfium2 onnxruntime pyarrow \
+            cryptography cffi
+
       - name: Generate app icons
         run: python3 scripts/generate_app_icons.py
 
-      - name: Build arm64 binary for macOS
+      - name: Build x86_64 binary for macOS (Intel)
         run: python3 -m PyInstaller --noconfirm --clean packaging/TOPDFAnnotator.spec
 
       - name: Verify build
