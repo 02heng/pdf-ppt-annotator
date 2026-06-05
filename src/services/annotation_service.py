@@ -5,7 +5,7 @@ from src.models.document import Document
 from src.models.page import Page
 from src.models.annotation import Annotation
 from src.models.config import LLMConfig
-from src.services.crew_service import CrewService
+from src.services.llm_service import LLMService, CREWAI_AVAILABLE
 from src.utils.page_image import PageImageData, extract_page_text_for_annotation, render_page_for_annotation
 from src.utils.page_text import get_page_readable_text
 
@@ -14,10 +14,22 @@ class AnnotationService:
     """批注处理服务"""
 
     def __init__(self, config: LLMConfig):
-        self.crew_service = CrewService(config)
+        self.llm_service = LLMService(config)
+        self._crew_service = None
         self._progress_callback: Optional[Callable] = None
         self._is_paused = False
         self._is_cancelled = False
+
+    @property
+    def crew_service(self):
+        if self._crew_service is None:
+            from src.services.crew_service import CrewService
+            self._crew_service = CrewService(self.llm_service.config)
+        return self._crew_service
+
+    @property
+    def crew_available(self) -> bool:
+        return CREWAI_AVAILABLE
 
     def set_progress_callback(self, callback: Callable) -> None:
         """设置进度回调函数"""
@@ -58,7 +70,10 @@ class AnnotationService:
                 )
 
             # 处理单页
-            annotations = self.crew_service.process_page(page)
+            if self.crew_available:
+                annotations = self.crew_service.process_page(page)
+            else:
+                annotations = []
 
             # 添加批注到页面
             for annotation in annotations:
@@ -80,7 +95,7 @@ class AnnotationService:
         cache_friendly: bool = False,
     ) -> List[Annotation]:
         """处理单页：multi_agent=True 时走 Crew；cache_friendly 时走前缀稳定的单模型（利于 DeepSeek 缓存）"""
-        if multi_agent and not cache_friendly and (
+        if multi_agent and not cache_friendly and self.crew_available and (
             pdf_path or pdf_doc is not None or source_path or page_image
         ):
             try:
@@ -106,7 +121,9 @@ class AnnotationService:
                 page_image=page_image,
                 cache_friendly=cache_friendly,
             )
-        return self.crew_service.process_page(page)
+        if self.crew_available:
+            return self.crew_service.process_page(page)
+        return []
 
     def _process_page_vision(
         self,
@@ -122,7 +139,7 @@ class AnnotationService:
     ) -> List[Annotation]:
         from src.services.vision_annotation_service import VisionAnnotationService
 
-        vision_service = VisionAnnotationService(self.crew_service.llm_service.config)
+        vision_service = VisionAnnotationService(self.llm_service.config)
         if page_image is not None:
             return vision_service.annotate_page_from_image(
                 page_image,
@@ -200,7 +217,7 @@ class AnnotationService:
         cache_friendly: bool = False,
     ) -> str:
         """文档全局理解：multi_agent 时由分析员+审核员通读；cache_friendly 时用稳定前缀单模型"""
-        if multi_agent and not cache_friendly and page_images:
+        if multi_agent and not cache_friendly and self.crew_available and page_images:
             try:
                 return self.crew_service.analyze_document_context(
                     page_images,
@@ -212,7 +229,7 @@ class AnnotationService:
 
         from src.services.vision_annotation_service import VisionAnnotationService
 
-        vision_service = VisionAnnotationService(self.crew_service.llm_service.config)
+        vision_service = VisionAnnotationService(self.llm_service.config)
         vision_service.ensure_vision_provider()
         return vision_service.analyze_document_from_images(
             page_images,
@@ -247,4 +264,5 @@ class AnnotationService:
 
     def switch_llm_provider(self, provider: str) -> None:
         """切换 LLM 提供商"""
-        self.crew_service.switch_llm_provider(provider)
+        self.llm_service.switch_provider(provider)
+        self._crew_service = None

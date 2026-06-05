@@ -1,7 +1,13 @@
 import uuid
 from typing import List, Optional
 
-from crewai import Crew, Task
+try:
+    from crewai import Crew, Task
+    CREWAI_AVAILABLE = True
+except ImportError:
+    Crew = None
+    Task = None
+    CREWAI_AVAILABLE = False
 
 from src.models.config import LLMConfig
 from src.models.page import Page
@@ -24,6 +30,8 @@ class CrewService:
     """CrewAI 多智能体编排：文档理解 + 逐页翻译/分析/批注/审核"""
 
     def __init__(self, config: LLMConfig):
+        if not CREWAI_AVAILABLE:
+            raise ImportError("crewai 未安装，多智能体功能不可用。请使用单模型模式。")
         self.llm_service = LLMService(config)
         self._agents = None
 

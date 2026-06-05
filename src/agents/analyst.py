@@ -1,9 +1,15 @@
-from crewai import Agent
-from crewai import LLM
+try:
+    from crewai import Agent
+    from crewai import LLM
+except ImportError:
+    Agent = None
+    LLM = None
 
 
-def create_analyst_agent(llm: LLM) -> Agent:
+def create_analyst_agent(llm):
     """创建分析员智能体"""
+    if Agent is None:
+        raise ImportError("crewai 未安装，多智能体功能不可用")
     return Agent(
         role="内容结构分析师",
         goal="深入分析文档内容结构，识别关键概念和逻辑关系",

@@ -1,6 +1,10 @@
-from .llm_service import LLMService
-from .crew_service import CrewService
+from .llm_service import LLMService, CREWAI_AVAILABLE
 from .annotation_service import AnnotationService
 from .export_service import ExportService
 
-__all__ = ["LLMService", "CrewService", "AnnotationService", "ExportService"]
+try:
+    from .crew_service import CrewService
+except ImportError:
+    CrewService = None
+
+__all__ = ["LLMService", "CREWAI_AVAILABLE", "CrewService", "AnnotationService", "ExportService"]

@@ -1,9 +1,15 @@
-from crewai import Agent
-from crewai import LLM
+try:
+    from crewai import Agent
+    from crewai import LLM
+except ImportError:
+    Agent = None
+    LLM = None
 
 
-def create_translator_agent(llm: LLM) -> Agent:
+def create_translator_agent(llm):
     """创建翻译员智能体"""
+    if Agent is None:
+        raise ImportError("crewai 未安装，多智能体功能不可用")
     return Agent(
         role="专业文档翻译员",
         goal="将英文技术文档准确翻译成中文，保留专业术语",

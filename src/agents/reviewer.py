@@ -1,9 +1,15 @@
-from crewai import Agent
-from crewai import LLM
+try:
+    from crewai import Agent
+    from crewai import LLM
+except ImportError:
+    Agent = None
+    LLM = None
 
 
-def create_reviewer_agent(llm: LLM) -> Agent:
+def create_reviewer_agent(llm):
     """创建审核员智能体"""
+    if Agent is None:
+        raise ImportError("crewai 未安装，多智能体功能不可用")
     return Agent(
         role="质量审核专家",
         goal="确保批注的准确性、完整性和可读性",
