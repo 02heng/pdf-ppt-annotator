@@ -82,8 +82,8 @@ jobs:
           if-no-files-found: error
 
   build-macos:
-    # macos-14 = Apple Silicon (M1) runner，确保原生 arm64 构建
-    runs-on: macos-14
+    # macos-13 = Intel runner，构建 x86_64 版本（Apple Silicon 通过 Rosetta 2 兼容）
+    runs-on: macos-13
     steps:
       - name: Checkout
         uses: actions/checkout@v4
