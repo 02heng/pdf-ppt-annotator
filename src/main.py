@@ -1,9 +1,37 @@
+import os
+import sys
+import traceback
+from pathlib import Path
+
 import yaml
 from src.models.config import Settings
 from src.ui.ctk_patch import apply_ctk_patches
 from src.ui.theme import UITheme
-from src.ui.app import App
 from src.utils.runtime import get_default_config_path, get_local_config_path
+
+
+def _log_startup_error(exc: Exception) -> None:
+    """将启动错误写入日志文件，方便排查"""
+    log_dir = Path.home() / "Library" / "Logs" / "TOPDFAnnotator"
+    if sys.platform == "win32":
+        log_dir = Path(os.environ.get("APPDATA", Path.home())) / "TOPDFAnnotator" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "startup_error.log"
+    with open(log_path, "w", encoding="utf-8") as f:
+        f.write(traceback.format_exc())
+
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror(
+            "启动错误",
+            f"应用启动时发生错误：\n\n{exc}\n\n详细日志：\n{log_path}"
+        )
+        root.destroy()
+    except Exception:
+        pass
 
 def load_config() -> Settings:
     """加载配置（合并 default.yaml 和 local.yaml）"""
@@ -43,11 +71,16 @@ def save_config(settings: Settings) -> None:
 
 def main():
     """主函数"""
-    apply_ctk_patches()
-    UITheme.install()
-    settings = load_config()
-    app = App(settings)
-    app.mainloop()
+    try:
+        apply_ctk_patches()
+        UITheme.install()
+        settings = load_config()
+        from src.ui.app import App
+        app = App(settings)
+        app.mainloop()
+    except Exception as e:
+        _log_startup_error(e)
+        raise
 
 
 if __name__ == "__main__":
