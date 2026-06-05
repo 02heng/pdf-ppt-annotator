@@ -117,9 +117,10 @@ jobs:
         run: |
           # 所有 pip 命令都通过 arch -x86_64 在 Rosetta 2 下运行
           arch -x86_64 "$_PY_X86_64" -m pip install --upgrade pip
-          arch -x86_64 "$_PY_X86_64" -m pip install -r requirements-build.txt
-          # crewai 依赖 lancedb（无 x86_64 wheel），过滤掉后安装其余依赖
-          grep -v '^crewai' requirements.txt > /tmp/requirements-mac.txt
+          # crewai 依赖 lancedb（无 x86_64 wheel），创建过滤后的依赖文件
+          # requirements-build.txt 通过 -r 引用 requirements.txt 会拉入 crewai，必须分开安装
+          grep -v '^crewai\|^-r' requirements.txt > /tmp/requirements-mac.txt
+          echo "pyinstaller>=6.3.0" >> /tmp/requirements-mac.txt
           arch -x86_64 "$_PY_X86_64" -m pip install -r /tmp/requirements-mac.txt
 
       - name: Generate app icons
