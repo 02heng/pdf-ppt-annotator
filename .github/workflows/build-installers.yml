@@ -82,7 +82,7 @@ jobs:
           if-no-files-found: error
 
   build-macos:
-    # macos-14 = Apple Silicon runner，构建 arm64 版本
+    # macos-14 = Apple Silicon runner，通过 Rosetta 2 构建 x86_64 版本
     runs-on: macos-14
     steps:
       - name: Checkout
@@ -98,29 +98,27 @@ jobs:
           fi
           echo "APP_VERSION=$ver" >> "$GITHUB_ENV"
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-          cache-dependency-path: |
-            requirements.txt
-            requirements-build.txt
+      - name: Setup x86_64 Python via Rosetta 2
+        run: |
+          # 安装 Rosetta 2（如果尚未安装）
+          /usr/sbin/softwareupdate --install-rosetta --agree-to-license 2>/dev/null || true
+          # 下载 x86_64 Python 3.11 安装包
+          PYTHON_URL="https://www.python.org/ftp/python/3.11.9/python-3.11.9-macos11.pkg"
+          curl -fsSL -o /tmp/python.pkg "$PYTHON_URL"
+          # 通过 Rosetta 2 安装
+          arch -x86_64 sudo installer -pkg /tmp/python.pkg -target /
+          # 创建 x86_64 venv
+          arch -x86_64 /usr/local/bin/python3.11 -m venv /tmp/x86_64-venv
+          # 使 venv 中的 python 优先
+          echo "/tmp/x86_64-venv/bin" >> $GITHUB_PATH
 
-      - name: Verify Python architecture
+      - name: Verify x86_64 Python
         run: |
           python3 -c "import platform; print(f'Architecture: {platform.machine()}')"
           python3 -c "import struct; print(f'Pointer size: {struct.calcsize(\"P\") * 8}-bit')"
 
-      - name: Install build dependencies
+      - name: Install build dependencies (x86_64)
         run: python3 -m pip install -r requirements-build.txt
-
-      - name: Install x86_64 wheels for cross-compilation
-        run: |
-          python3 -m pip install --force-reinstall --no-deps \
-            --platform macosx_10_9_x86_64 --only-binary=:all: \
-            Pillow numpy PyMuPDF lxml regex pypdfium2 onnxruntime pyarrow \
-            cryptography cffi
 
       - name: Generate app icons
         run: python3 scripts/generate_app_icons.py
