@@ -105,26 +105,23 @@ jobs:
           # 下载 x86_64 Python 3.11 安装包
           PYTHON_URL="https://www.python.org/ftp/python/3.11.9/python-3.11.9-macos11.pkg"
           curl -fsSL -o /tmp/python.pkg "$PYTHON_URL"
-          # 通过 Rosetta 2 安装
-          arch -x86_64 sudo installer -pkg /tmp/python.pkg -target /
-          # 创建 x86_64 venv
-          arch -x86_64 /usr/local/bin/python3.11 -m venv /tmp/x86_64-venv
-          # 使 venv 中的 python 优先
-          echo "/tmp/x86_64-venv/bin" >> $GITHUB_PATH
-
-      - name: Verify x86_64 Python
-        run: |
-          python3 -c "import platform; print(f'Architecture: {platform.machine()}')"
-          python3 -c "import struct; print(f'Pointer size: {struct.calcsize(\"P\") * 8}-bit')"
+          # 安装 x86_64 Python
+          sudo installer -pkg /tmp/python.pkg -target /
+          # 验证安装
+          /usr/local/bin/python3.11 -c "import platform; print(f'Architecture: {platform.machine()}')"
 
       - name: Install build dependencies (x86_64)
-        run: python3 -m pip install -r requirements-build.txt
+        run: |
+          # 使用 x86_64 Python 直接安装，确保下载 x86_64 wheel
+          /usr/local/bin/python3.11 -m pip install --upgrade pip
+          /usr/local/bin/python3.11 -m pip install -r requirements-build.txt
+          /usr/local/bin/python3.11 -m pip install -r requirements.txt
 
       - name: Generate app icons
-        run: python3 scripts/generate_app_icons.py
+        run: /usr/local/bin/python3.11 scripts/generate_app_icons.py
 
       - name: Build x86_64 binary for macOS (Intel)
-        run: python3 -m PyInstaller --noconfirm --clean packaging/TOPDFAnnotator.spec
+        run: /usr/local/bin/python3.11 -m PyInstaller --noconfirm --clean packaging/TOPDFAnnotator.spec
 
       - name: Verify build
         run: |
