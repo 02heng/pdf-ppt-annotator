@@ -82,8 +82,12 @@ jobs:
           if-no-files-found: error
 
   build-macos:
-    # macos-14 = Apple Silicon runner，通过 Rosetta 2 构建 x86_64 版本
+    # macos-14 = Apple Silicon runner，通过 Rosetta 2 构建 x86_64 (Intel) 版本
     runs-on: macos-14
+    env:
+      # 全局设置：所有命令都在 Rosetta 2 (x86_64) 下运行
+      ARCHFLAGS: "-arch x86_64"
+      _PY_X86_64: "/Library/Frameworks/Python.framework/Versions/3.11/bin/python3.11"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -98,30 +102,30 @@ jobs:
           fi
           echo "APP_VERSION=$ver" >> "$GITHUB_ENV"
 
-      - name: Setup x86_64 Python via Rosetta 2
+      - name: Install x86_64 Python 3.11
         run: |
-          # 安装 Rosetta 2（如果尚未安装）
+          # 安装 Rosetta 2
           /usr/sbin/softwareupdate --install-rosetta --agree-to-license 2>/dev/null || true
-          # 下载 x86_64 Python 3.11 安装包
-          PYTHON_URL="https://www.python.org/ftp/python/3.11.9/python-3.11.9-macos11.pkg"
-          curl -fsSL -o /tmp/python.pkg "$PYTHON_URL"
-          # 安装 x86_64 Python
+          # 下载 python.org 安装包（universal2，包含 x86_64 + arm64）
+          curl -fsSL -o /tmp/python.pkg "https://www.python.org/ftp/python/3.11.9/python-3.11.9-macos11.pkg"
           sudo installer -pkg /tmp/python.pkg -target /
-          # 验证安装
-          /usr/local/bin/python3.11 -c "import platform; print(f'Architecture: {platform.machine()}')"
+          # 验证 x86_64 可用
+          file "$_PY_X86_64"
+          arch -x86_64 "$_PY_X86_64" -c "import platform,struct; print(f'machine={platform.machine()} ptr={struct.calcsize(\"P\")*8}bit')"
 
-      - name: Install build dependencies (x86_64)
+      - name: Install dependencies (x86_64 via Rosetta 2)
         run: |
-          # 使用 x86_64 Python 直接安装，确保下载 x86_64 wheel
-          /usr/local/bin/python3.11 -m pip install --upgrade pip
-          /usr/local/bin/python3.11 -m pip install -r requirements-build.txt
-          /usr/local/bin/python3.11 -m pip install -r requirements.txt
+          # 所有 pip 命令都通过 arch -x86_64 在 Rosetta 2 下运行
+          # 这样 pip 会自动检测 x86_64 平台并下载对应的 wheel
+          arch -x86_64 "$_PY_X86_64" -m pip install --upgrade pip
+          arch -x86_64 "$_PY_X86_64" -m pip install -r requirements-build.txt
+          arch -x86_64 "$_PY_X86_64" -m pip install -r requirements.txt
 
       - name: Generate app icons
-        run: /usr/local/bin/python3.11 scripts/generate_app_icons.py
+        run: arch -x86_64 "$_PY_X86_64" scripts/generate_app_icons.py
 
-      - name: Build x86_64 binary for macOS (Intel)
-        run: /usr/local/bin/python3.11 -m PyInstaller --noconfirm --clean packaging/TOPDFAnnotator.spec
+      - name: Build x86_64 binary (Intel Mac)
+        run: arch -x86_64 "$_PY_X86_64" -m PyInstaller --noconfirm --clean packaging/TOPDFAnnotator.spec
 
       - name: Verify build
         run: |
@@ -150,16 +154,10 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: [build-windows, build-macos]
+    needs: [build-macos]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
-      - name: Download Windows artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-installers
-          path: release/windows
-
       - name: Download macOS artifacts
         uses: actions/download-artifact@v4
         with:
@@ -172,6 +170,5 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: TO PDF 批注工具 ${{ github.ref_name }}
           files: |
-            release/windows/*
             release/macos/*
           generate_release_notes: true
