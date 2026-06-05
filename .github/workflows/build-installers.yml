@@ -119,7 +119,9 @@ jobs:
           # 这样 pip 会自动检测 x86_64 平台并下载对应的 wheel
           arch -x86_64 "$_PY_X86_64" -m pip install --upgrade pip
           arch -x86_64 "$_PY_X86_64" -m pip install -r requirements-build.txt
-          arch -x86_64 "$_PY_X86_64" -m pip install -r requirements.txt
+          # crewai 依赖 lancedb（无 x86_64 wheel），跳过 crewai 安装
+          # 核心功能（PDF/PPT 批注、LLM 翻译）不依赖 crewai
+          grep -v '^crewai' requirements.txt | arch -x86_64 "$_PY_X86_64" -m pip install -r /dev/stdin
 
       - name: Generate app icons
         run: arch -x86_64 "$_PY_X86_64" scripts/generate_app_icons.py
