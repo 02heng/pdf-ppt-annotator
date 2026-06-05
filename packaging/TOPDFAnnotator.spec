@@ -18,13 +18,12 @@ import platform
 block_cipher = None
 
 # macOS 构建目标架构：
-# universal2 需要所有依赖均为 fat binary（PIL/PyMuPDF 等 C 扩展通常只有单架构，无法满足）
-# 因此默认构建 x86_64 版本：
-#   - Intel Mac 原生运行
-#   - Apple Silicon Mac 通过 Rosetta 2 自动兼容（macOS 会提示安装 Rosetta）
-# 如需原生 arm64 版本，可在 Apple Silicon 机器上取消注释下一行
-# _mac_arch = "arm64"
-_mac_arch = None
+# - universal2 需要所有依赖均为 fat binary（PIL/PyMuPDF 等 C 扩展通常只有单架构，无法满足）
+# - 因此构建 arm64 版本：Apple Silicon (M1/M2/M3/M4) 原生运行
+# - Intel Mac 通过 Rosetta 2 也能运行 arm64 应用
+# - CI 中 macOS runner 均为 Apple Silicon，可直接构建 arm64
+import platform as _platform
+_mac_arch = "arm64"
 
 _brand = ROOT / "assets" / "branding"
 _icon_ico = _brand / "icon.ico"

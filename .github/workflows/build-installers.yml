@@ -82,8 +82,8 @@ jobs:
           if-no-files-found: error
 
   build-macos:
-    # macos-13 = Intel runner，构建 x86_64 版本（Apple Silicon 通过 Rosetta 2 兼容）
-    runs-on: macos-13
+    # macos-14 = Apple Silicon runner，构建 arm64 版本
+    runs-on: macos-14
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -118,7 +118,7 @@ jobs:
       - name: Generate app icons
         run: python3 scripts/generate_app_icons.py
 
-      - name: Build Universal Binary (Intel + Apple Silicon)
+      - name: Build arm64 binary for macOS
         run: python3 -m PyInstaller --noconfirm --clean packaging/TOPDFAnnotator.spec
 
       - name: Verify build
