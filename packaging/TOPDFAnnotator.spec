@@ -33,12 +33,24 @@ datas = [
 if _brand.is_dir():
     datas.append((str(_brand), "assets/branding"))
 datas += collect_data_files("customtkinter")
+# crewai 翻译文件 (i18n) — 仅在 crewai 可用时包含
+try:
+    import crewai as _crewai_pkg
+    _crewai_dir = Path(_crewai_pkg.__file__).parent
+    _crewai_translations = _crewai_dir / "translations" / "en.json"
+    if _crewai_translations.is_file():
+        datas.append((str(_crewai_translations), "crewai/translations"))
+except ImportError:
+    pass
 
 hiddenimports = [
     "PIL._tkinter_finder",
     "pkg_resources.py2_warn",
+    "fitz",
+    "pymupdf",
+    "pymupdf.mupdf",
 ]
-for pkg in ("crewai", "flask", "pydantic", "litellm", "instructor"):
+for pkg in ("flask", "pydantic"):
     try:
         hiddenimports += collect_submodules(pkg)
     except Exception:
@@ -53,10 +65,18 @@ excludes = [
     "tkinter.test",
 ]
 
+import os as _os
+
+_pymupdf_dir = _os.path.dirname(_os.path.abspath(__import__("pymupdf").__file__))
+_mupdf_dll = _os.path.join(_pymupdf_dir, "mupdfcpp64.dll")
+_binaries = []
+if _os.path.isfile(_mupdf_dll):
+    _binaries.append((_mupdf_dll, "pymupdf"))
+
 a = Analysis(
     [str(ROOT / "src" / "main.py")],
     pathex=[str(ROOT)],
-    binaries=[],
+        binaries=_binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],

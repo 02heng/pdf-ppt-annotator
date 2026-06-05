@@ -4,7 +4,7 @@ from typing import List, Optional
 try:
     from crewai import Crew, Task
     CREWAI_AVAILABLE = True
-except ImportError:
+except Exception:
     Crew = None
     Task = None
     CREWAI_AVAILABLE = False

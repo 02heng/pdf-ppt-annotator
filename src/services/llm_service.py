@@ -3,7 +3,7 @@ from src.models.config import LLMConfig
 
 try:
     from crewai import LLM as CrewLLM
-except ImportError:
+except Exception:
     CrewLLM = None
 
 

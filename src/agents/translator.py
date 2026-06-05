@@ -1,7 +1,7 @@
 try:
     from crewai import Agent
     from crewai import LLM
-except ImportError:
+except Exception:
     Agent = None
     LLM = None
 

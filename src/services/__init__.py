@@ -4,7 +4,7 @@ from .export_service import ExportService
 
 try:
     from .crew_service import CrewService
-except ImportError:
+except Exception:
     CrewService = None
 
 __all__ = ["LLMService", "CREWAI_AVAILABLE", "CrewService", "AnnotationService", "ExportService"]
