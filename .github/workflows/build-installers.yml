@@ -127,6 +127,8 @@ jobs:
         run: arch -x86_64 "$_PY_X86_64" scripts/generate_app_icons.py
 
       - name: Build x86_64 binary (Intel Mac)
+        env:
+          PYINSTALLER_TARGET_ARCH: "x86_64"
         run: arch -x86_64 "$_PY_X86_64" -m PyInstaller --noconfirm --clean packaging/TOPDFAnnotator.spec
 
       - name: Verify build

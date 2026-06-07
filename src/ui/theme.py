@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
+import sys
 import tkinter as tk
 
 import customtkinter as ctk
+
+
+def _platform_font_family() -> str:
+    if sys.platform == "darwin":
+        return "PingFang SC"
+    if sys.platform == "win32":
+        return "Microsoft YaHei UI"
+    return "Noto Sans CJK SC"
 
 
 class UITheme:
@@ -99,7 +108,7 @@ class UITheme:
     BTN_HEIGHT = 36
     BTN_HEIGHT_SM = 32
 
-    FONT_FAMILY = "Microsoft YaHei UI"
+    FONT_FAMILY = _platform_font_family()
 
     @classmethod
     def font_title(cls) -> ctk.CTkFont:

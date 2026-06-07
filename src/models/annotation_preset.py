@@ -1,8 +1,20 @@
 """手动添加批注时的样式预设（不同用途 = 不同显示模型）。"""
 from __future__ import annotations
 
-from dataclasses import dataclass
+import sys
+from dataclasses import dataclass, field
 from typing import Dict, List
+
+
+def _default_font() -> str:
+    if sys.platform == "darwin":
+        return "PingFang SC"
+    if sys.platform == "win32":
+        return "Microsoft YaHei"
+    return "Noto Sans CJK SC"
+
+
+_FONT = _default_font()
 
 
 @dataclass(frozen=True)
@@ -24,7 +36,7 @@ ANNOTATION_PRESETS: List[AnnotationPreset] = [
         display_mode="inline",
         color="#7C2D12",
         font_size=12,
-        font_family="Microsoft YaHei",
+        font_family=_FONT,
         placement="right",
         hint="点击页面放置，文字直接显示在旁（可拖动、双击编辑）",
     ),
@@ -34,7 +46,7 @@ ANNOTATION_PRESETS: List[AnnotationPreset] = [
         display_mode="marker",
         color="#7C3AED",
         font_size=11,
-        font_family="Microsoft YaHei",
+        font_family=_FONT,
         hint="点击页面放置数字标记，双击展开长文批注",
     ),
     AnnotationPreset(
@@ -43,7 +55,7 @@ ANNOTATION_PRESETS: List[AnnotationPreset] = [
         display_mode="inline",
         color="#0369A1",
         font_size=10,
-        font_family="Microsoft YaHei",
+        font_family=_FONT,
         placement="right",
         hint="小号蓝色，适合术语/短语对照",
     ),
@@ -53,7 +65,7 @@ ANNOTATION_PRESETS: List[AnnotationPreset] = [
         display_mode="inline",
         color="#DC2626",
         font_size=15,
-        font_family="Microsoft YaHei",
+        font_family=_FONT,
         placement="above",
         hint="红色较大字号，适合标题或重点句",
     ),
@@ -63,7 +75,7 @@ ANNOTATION_PRESETS: List[AnnotationPreset] = [
         display_mode="inline",
         color="#059669",
         font_size=11,
-        font_family="Microsoft YaHei",
+        font_family=_FONT,
         placement="below",
         hint="绿色，适合段落下方的补充说明",
     ),
@@ -73,7 +85,7 @@ ANNOTATION_PRESETS: List[AnnotationPreset] = [
         display_mode="inline",
         color="#333333",
         font_size=12,
-        font_family="Microsoft YaHei",
+        font_family=_FONT,
         hint="使用右侧批注内容区已设置的字体/字号/颜色",
     ),
 ]

@@ -1,5 +1,14 @@
+import sys
 from typing import Optional
 from pydantic import BaseModel, Field
+
+
+def _default_font_family() -> str:
+    if sys.platform == "darwin":
+        return "PingFang SC"
+    if sys.platform == "win32":
+        return "Microsoft YaHei"
+    return "Noto Sans CJK SC"
 
 class OpenAIConfig(BaseModel):
     """OpenAI 配置"""
@@ -79,7 +88,7 @@ class LLMConfig(BaseModel):
 
 class AnnotationStyle(BaseModel):
     """批注样式配置"""
-    font_family: str = "Microsoft YaHei"
+    font_family: str = Field(default_factory=_default_font_family)
     font_size: int = 12
     color: str = "#333333"
     background: str = "#FFFFCC"

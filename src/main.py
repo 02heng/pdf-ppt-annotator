@@ -10,14 +10,24 @@ from src.ui.theme import UITheme
 from src.utils.runtime import get_default_config_path, get_local_config_path
 
 
+def _get_log_dir() -> Path:
+    if sys.platform == "win32":
+        return Path(os.environ.get("APPDATA", Path.home())) / "TOPDFAnnotator" / "logs"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Logs" / "TOPDFAnnotator"
+    return Path.home() / ".local" / "share" / "TOPDFAnnotator" / "logs"
+
+
 def _log_startup_error(exc: Exception) -> None:
     """将启动错误写入日志文件，方便排查"""
-    log_dir = Path.home() / "Library" / "Logs" / "TOPDFAnnotator"
-    if sys.platform == "win32":
-        log_dir = Path(os.environ.get("APPDATA", Path.home())) / "TOPDFAnnotator" / "logs"
+    log_dir = _get_log_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "startup_error.log"
     with open(log_path, "w", encoding="utf-8") as f:
+        f.write(f"Platform: {sys.platform}\n")
+        f.write(f"Python: {sys.version}\n")
+        f.write(f"Frozen: {getattr(sys, 'frozen', False)}\n")
+        f.write(f"Executable: {sys.executable}\n\n")
         f.write(traceback.format_exc())
 
     try:

@@ -58,7 +58,7 @@ class AnnotationMarker:
         self.source_y = source_y
         self.text_orientation = text_orientation or "horizontal"
         self.font_size = font_size
-        self.font_family = font_family or "Microsoft YaHei"
+        self.font_family = font_family or UITheme.FONT_FAMILY
         self.style_kind = style_kind
 
         self.collapsed_width = self.MARKER_SIZE
@@ -83,7 +83,7 @@ class AnnotationMarker:
     def _wrap_font():
         import tkinter.font as tkfont
 
-        return tkfont.Font(family="Microsoft YaHei UI", size=11)
+        return tkfont.Font(family=UITheme.FONT_FAMILY, size=11)
 
     def _measure_body_height(self) -> int:
         """按与弹层 Textbox 相同的字体/宽度测算正文高度"""
@@ -350,7 +350,7 @@ class App(ctk.CTk):
         from src.utils.system_fonts import get_system_font_families
 
         self._system_fonts = get_system_font_families()
-        default_font = self.settings.annotation.style.font_family or "Microsoft YaHei"
+        default_font = self.settings.annotation.style.font_family or UITheme.FONT_FAMILY
         if default_font not in self._system_fonts:
             self._system_fonts.insert(0, default_font)
 
@@ -1552,13 +1552,17 @@ class App(ctk.CTk):
 
         self._ensure_preview_shell()
 
-        page = self.pdf_doc[self.current_page]
-        mat = fitz.Matrix(self.zoom_level * 2, self.zoom_level * 2)
-        pix = page.get_pixmap(matrix=mat)
+        try:
+            page = self.pdf_doc[self.current_page]
+            mat = fitz.Matrix(self.zoom_level * 2, self.zoom_level * 2)
+            pix = page.get_pixmap(matrix=mat)
 
-        img_data = pix.tobytes("png")
-        self.page_image = Image.open(io.BytesIO(img_data))
-        self.tk_image = ImageTk.PhotoImage(self.page_image)
+            img_data = pix.tobytes("png")
+            self.page_image = Image.open(io.BytesIO(img_data))
+            self.tk_image = ImageTk.PhotoImage(self.page_image)
+        except Exception as e:
+            show_warning(self, "错误", f"渲染页面失败: {e}")
+            return
 
         self.canvas.delete("all")
         self._page_image_id = None
@@ -1878,7 +1882,7 @@ class App(ctk.CTk):
         return (
             getattr(marker, "font_family", "")
             or self.settings.annotation.style.font_family
-            or "Microsoft YaHei"
+            or UITheme.FONT_FAMILY
         )
 
     def _display_text_for_marker(self, marker: AnnotationMarker) -> str:
@@ -1911,7 +1915,7 @@ class App(ctk.CTk):
             return
         from src.utils.block_font_size import UI_ANNOTATION_FONT_PT
 
-        family = self.font_family_var.get() if hasattr(self, "font_family_var") else "Microsoft YaHei"
+        family = self.font_family_var.get() if hasattr(self, "font_family_var") else UITheme.FONT_FAMILY
         color = self.color_var.get() if hasattr(self, "color_var") else UITheme.POPUP_TEXT
         try:
             self.annotation_input.configure(

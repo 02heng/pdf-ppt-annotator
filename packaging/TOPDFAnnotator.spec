@@ -17,9 +17,10 @@ import platform
 
 block_cipher = None
 
-# macOS 目标架构：构建 x86_64 版本以兼容 Intel Mac
+# macOS 目标架构：根据环境变量决定，默认使用当前平台原生架构
+import os as _os_early
 import platform as _platform
-_mac_arch = "x86_64"
+_mac_arch = _os_early.environ.get("PYINSTALLER_TARGET_ARCH", None)
 
 _brand = ROOT / "assets" / "branding"
 _icon_ico = _brand / "icon.ico"
@@ -49,6 +50,9 @@ hiddenimports = [
     "fitz",
     "pymupdf",
     "pymupdf.mupdf",
+    "tkinter",
+    "tkinter.font",
+    "_tkinter",
 ]
 for pkg in ("flask", "pydantic"):
     try:
@@ -66,12 +70,18 @@ excludes = [
 ]
 
 import os as _os
+import glob as _glob
 
 _pymupdf_dir = _os.path.dirname(_os.path.abspath(__import__("pymupdf").__file__))
-_mupdf_dll = _os.path.join(_pymupdf_dir, "mupdfcpp64.dll")
 _binaries = []
-if _os.path.isfile(_mupdf_dll):
-    _binaries.append((_mupdf_dll, "pymupdf"))
+if sys.platform == "win32":
+    _mupdf_dll = _os.path.join(_pymupdf_dir, "mupdfcpp64.dll")
+    if _os.path.isfile(_mupdf_dll):
+        _binaries.append((_mupdf_dll, "pymupdf"))
+else:
+    for _ext in ("*.dylib", "*.so"):
+        for _lib in _glob.glob(_os.path.join(_pymupdf_dir, _ext)):
+            _binaries.append((_lib, "pymupdf"))
 
 a = Analysis(
     [str(ROOT / "src" / "main.py")],
@@ -105,7 +115,7 @@ exe = EXE(
     upx=True,
     console=False,
     disable_windowed_traceback=False,
-    argv_emulation=sys.platform == "darwin",
+    argv_emulation=False,
     target_arch=_mac_arch,
     codesign_identity=None,
     entitlements_file=None,
@@ -138,5 +148,21 @@ if sys.platform == "darwin":
             "CFBundleVersion": APP_VERSION,
             "NSHighResolutionCapable": True,
             "LSMinimumSystemVersion": "11.0",
+            "NSRequiresAquaSystemAppearance": True,
+            "CFBundleDocumentTypes": [
+                {
+                    "CFBundleTypeName": "PDF Document",
+                    "CFBundleTypeRole": "Viewer",
+                    "LSItemContentTypes": ["com.adobe.pdf"],
+                },
+                {
+                    "CFBundleTypeName": "PowerPoint Presentation",
+                    "CFBundleTypeRole": "Viewer",
+                    "LSItemContentTypes": [
+                        "org.openxmlformats.presentationml.presentation",
+                        "com.microsoft.powerpoint.ppt",
+                    ],
+                },
+            ],
         },
     )
