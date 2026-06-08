@@ -21,9 +21,6 @@ echo "==> 目标架构: $EB_ARCH"
 
 export CSC_IDENTITY_AUTO_DISCOVERY=false
 
-echo "==> 生成应用图标..."
-python3 scripts/generate_app_icons.py
-
 echo "==> 安装 Python 打包依赖..."
 grep -v '^crewai\|^-r' requirements.txt > /tmp/requirements-mac.txt
 echo "pyinstaller>=6.3.0" >> /tmp/requirements-mac.txt
@@ -35,10 +32,16 @@ else
   python3 -m pip install -r /tmp/requirements-mac.txt -q
 fi
 
+echo "==> 生成应用图标..."
+if [[ "$EB_ARCH" == "x64" ]]; then
+  arch -x86_64 "$PY" scripts/generate_app_icons.py
+else
+  python3 scripts/generate_app_icons.py
+fi
+
 echo "==> 构建 Electron DMG..."
 pushd electron >/dev/null
 npm install
-npm run icons
 npm run prepare-vendor
 npm run build-backend
 npx electron-builder --mac dmg "--$EB_ARCH" --publish never

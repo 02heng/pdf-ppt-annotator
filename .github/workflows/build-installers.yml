@@ -184,7 +184,7 @@ jobs:
           TOPDF_PYTHON: /Library/Frameworks/Python.framework/Versions/3.11/bin/python3.11
         run: |
           npm ci
-          npm run icons
+          arch -x86_64 "$_PY_X86_64" ../scripts/generate_app_icons.py
           npm run prepare-vendor
           npm run build-backend
           npx electron-builder --mac dmg --x64 --publish never
