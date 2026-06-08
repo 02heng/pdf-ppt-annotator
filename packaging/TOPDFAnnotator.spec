@@ -3,7 +3,7 @@
 import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
 ROOT = Path(SPECPATH).resolve().parent
 _version_file = ROOT / "VERSION"
@@ -33,28 +33,42 @@ datas = [
 ]
 if _brand.is_dir():
     datas.append((str(_brand), "assets/branding"))
+
+# CustomTkinter 主题/字体（缺失会导致启动闪退）
 datas += collect_data_files("customtkinter")
+# darkdetect：CustomTkinter 在 macOS 上用它探测系统外观，缺失会启动闪退
+try:
+    datas += collect_data_files("darkdetect")
+except Exception:
+    pass
+
 # crewai 翻译文件 (i18n) — 仅在 crewai 可用时包含
 try:
     import crewai as _crewai_pkg
+
     _crewai_dir = Path(_crewai_pkg.__file__).parent
-    _crewai_translations = _crewai_dir / "translations" / "en.json"
-    if _crewai_translations.is_file():
+    _crewai_translations = _crewai_dir / "translations"
+    if _crewai_translations.is_dir():
         datas.append((str(_crewai_translations), "crewai/translations"))
 except ImportError:
     pass
 
 hiddenimports = [
     "PIL._tkinter_finder",
-    "pkg_resources.py2_warn",
+    "PIL.ImageTk",
     "fitz",
     "pymupdf",
+    "pymupdf._mupdf",
+    "pymupdf._extra",
     "pymupdf.mupdf",
     "tkinter",
     "tkinter.font",
+    "tkinter.ttk",
     "_tkinter",
+    "darkdetect",
+    "customtkinter",
 ]
-for pkg in ("flask", "pydantic"):
+for pkg in ("flask", "pydantic", "liteparse"):
     try:
         hiddenimports += collect_submodules(pkg)
     except Exception:
@@ -72,26 +86,43 @@ excludes = [
 import os as _os
 import glob as _glob
 
+# PyMuPDF 原生库（缺失会导致 PDF 预览白屏）
+_binaries = collect_dynamic_libs("pymupdf")
 _pymupdf_dir = _os.path.dirname(_os.path.abspath(__import__("pymupdf").__file__))
-_binaries = []
 if sys.platform == "win32":
     _mupdf_dll = _os.path.join(_pymupdf_dir, "mupdfcpp64.dll")
-    if _os.path.isfile(_mupdf_dll):
+    if _os.path.isfile(_mupdf_dll) and not any(src == _mupdf_dll for src, _ in _binaries):
         _binaries.append((_mupdf_dll, "pymupdf"))
 else:
     for _ext in ("*.dylib", "*.so"):
         for _lib in _glob.glob(_os.path.join(_pymupdf_dir, _ext)):
-            _binaries.append((_lib, "pymupdf"))
+            if not any(src == _lib for src, _ in _binaries):
+                _binaries.append((_lib, "pymupdf"))
+
+# UPX 压缩会破坏 VC 运行时与 MuPDF DLL，导致闪退或白屏
+_upx_exclude = [
+    "vcruntime140.dll",
+    "vcruntime140_1.dll",
+    "msvcp140.dll",
+    "python*.dll",
+    "mupdfcpp64.dll",
+    "_mupdf.pyd",
+    "_extra.pyd",
+    "tcl86t.dll",
+    "tk86t.dll",
+]
+
+_runtime_hooks = [str(ROOT / "packaging" / "rthooks" / "pyi_rth_frozen.py")]
 
 a = Analysis(
     [str(ROOT / "src" / "main.py")],
     pathex=[str(ROOT)],
-        binaries=_binaries,
+    binaries=_binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=_runtime_hooks,
     excludes=excludes,
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -112,7 +143,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -128,8 +159,8 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,
-    upx_exclude=[],
+    upx=False,
+    upx_exclude=_upx_exclude,
     name="TOPDFAnnotator",
 )
 

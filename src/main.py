@@ -3,6 +3,10 @@ import sys
 import traceback
 from pathlib import Path
 
+from src.frozen_bootstrap import prepare_frozen_runtime
+
+prepare_frozen_runtime()
+
 import yaml
 from src.models.config import Settings
 from src.ui.ctk_patch import apply_ctk_patches

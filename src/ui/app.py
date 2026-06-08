@@ -253,6 +253,13 @@ class App(ctk.CTk):
 
         # 中间预览区域
         self.preview_frame = ctk.CTkFrame(self.content_frame)
+        self._preview_placeholder = ctk.CTkLabel(
+            self.preview_frame,
+            text="导入 PDF / PPT 后，文档将显示在此处",
+            font=UITheme.font_body(),
+            text_color=UITheme.TEXT_MUTED,
+        )
+        self._preview_placeholder.place(relx=0.5, rely=0.5, anchor="center")
 
         # 右侧批注面板
         self.sidebar_frame = ctk.CTkFrame(self.content_frame, width=380)
@@ -1010,6 +1017,9 @@ class App(ctk.CTk):
         except ImportError:
             show_warning(self, "错误", "请安装PyMuPDF: pip install pymupdf")
         except Exception as e:
+            from src.utils.runtime_log import log_runtime_error
+
+            log_runtime_error(f"_load_pdf failed: {file_path}", e)
             show_warning(self, "错误", f"读取PDF出错: {str(e)}")
 
     def _load_text_positions(self, file_path: str) -> None:
@@ -1109,6 +1119,48 @@ class App(ctk.CTk):
         if self._preview_shell_ready:
             return
 
+        if hasattr(self, "_preview_placeholder"):
+            self._preview_placeholder.place_forget()
+
+        # 先 pack 画布区域（expand），再 pack 底部工具栏，避免 CTk 嵌套 tk.Canvas 高度为 0
+        self._viewer_host = tk.Frame(self.preview_frame, bg=UITheme.BG, highlightthickness=0)
+        self._viewer_host.pack(side="top", fill="both", expand=True, padx=5, pady=(5, 0))
+
+        self._canvas_panel = tk.Frame(self._viewer_host, bg=UITheme.BG, highlightthickness=0)
+        self._canvas_panel.pack(fill="both", expand=True)
+        self._canvas_panel.grid_rowconfigure(0, weight=1)
+        self._canvas_panel.grid_columnconfigure(0, weight=1)
+
+        self.canvas = tk.Canvas(
+            self._canvas_panel,
+            bg=UITheme.SURFACE,
+            highlightthickness=0,
+        )
+        self._v_scroll = ctk.CTkScrollbar(
+            self._canvas_panel,
+            orientation="vertical",
+            command=self.canvas.yview,
+        )
+        self._h_scroll = ctk.CTkScrollbar(
+            self._canvas_panel,
+            orientation="horizontal",
+            command=self.canvas.xview,
+        )
+        self.canvas.configure(
+            yscrollcommand=self._v_scroll.set,
+            xscrollcommand=self._h_scroll.set,
+        )
+        UITheme.style_scrollbar(self._v_scroll)
+        UITheme.style_scrollbar(self._h_scroll)
+
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        self._v_scroll.grid(row=0, column=1, sticky="ns")
+        self._h_scroll.grid(row=1, column=0, sticky="ew")
+        for sb in (self._v_scroll, self._h_scroll):
+            sb.bind("<ButtonRelease-1>", lambda _e: self._schedule_viewport_guide())
+
+        self._bind_canvas_events()
+
         nav_outer = ctk.CTkFrame(self.preview_frame, fg_color="transparent")
         nav_outer.pack(side="bottom", fill="x", padx=UITheme.PAD, pady=UITheme.PAD)
 
@@ -1161,43 +1213,6 @@ class App(ctk.CTk):
         UITheme.style_nav_button(self.next_btn)
         self._nav_buttons.append(self.next_btn)
 
-        self._viewer_host = ctk.CTkFrame(self.preview_frame, fg_color="transparent")
-        self._viewer_host.pack(side="top", fill="both", expand=True, padx=5, pady=(5, 0))
-
-        self._canvas_panel = tk.Frame(self._viewer_host, bg=UITheme.BG, highlightthickness=0)
-        self._canvas_panel.pack(fill="both", expand=True)
-        self._canvas_panel.grid_rowconfigure(0, weight=1)
-        self._canvas_panel.grid_columnconfigure(0, weight=1)
-
-        self.canvas = tk.Canvas(
-            self._canvas_panel,
-            bg=UITheme.SURFACE,
-            highlightthickness=0,
-        )
-        self._v_scroll = ctk.CTkScrollbar(
-            self._canvas_panel,
-            orientation="vertical",
-            command=self.canvas.yview,
-        )
-        self._h_scroll = ctk.CTkScrollbar(
-            self._canvas_panel,
-            orientation="horizontal",
-            command=self.canvas.xview,
-        )
-        self.canvas.configure(
-            yscrollcommand=self._v_scroll.set,
-            xscrollcommand=self._h_scroll.set,
-        )
-        UITheme.style_scrollbar(self._v_scroll)
-        UITheme.style_scrollbar(self._h_scroll)
-
-        self.canvas.grid(row=0, column=0, sticky="nsew")
-        self._v_scroll.grid(row=0, column=1, sticky="ns")
-        self._h_scroll.grid(row=1, column=0, sticky="ew")
-        for sb in (self._v_scroll, self._h_scroll):
-            sb.bind("<ButtonRelease-1>", lambda _e: self._schedule_viewport_guide())
-
-        self._bind_canvas_events()
         self._preview_shell_ready = True
 
     def _build_ink_toolbar(self, parent: ctk.CTkFrame) -> None:
@@ -1534,8 +1549,13 @@ class App(ctk.CTk):
 
     def _destroy_preview_shell(self) -> None:
         for widget in self.preview_frame.winfo_children():
+            if widget is getattr(self, "_preview_placeholder", None):
+                continue
             widget.destroy()
+        self.canvas = None
         self._preview_shell_ready = False
+        if hasattr(self, "_preview_placeholder"):
+            self._preview_placeholder.place(relx=0.5, rely=0.5, anchor="center")
 
     def _render_page(self) -> None:
         """渲染当前页面"""
@@ -1559,8 +1579,13 @@ class App(ctk.CTk):
 
             img_data = pix.tobytes("png")
             self.page_image = Image.open(io.BytesIO(img_data))
-            self.tk_image = ImageTk.PhotoImage(self.page_image)
+            self.page_image.load()
+            self.tk_image = ImageTk.PhotoImage(self.page_image, master=self.canvas)
+            self.canvas.image = self.tk_image
         except Exception as e:
+            from src.utils.runtime_log import log_runtime_error
+
+            log_runtime_error(f"_render_page failed (page={self.current_page})", e)
             show_warning(self, "错误", f"渲染页面失败: {e}")
             return
 
@@ -1570,6 +1595,7 @@ class App(ctk.CTk):
 
         self._layout_page_in_canvas()
         self._show_annotations()
+        self.after_idle(self._relayout_page_view)
 
         bbox = self.canvas.bbox("all")
         if bbox:

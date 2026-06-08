@@ -39,11 +39,37 @@ if (-not (Test-Path (Join-Path $AppDir "TOPDFAnnotator.exe"))) {
     throw "构建失败：未找到 TOPDFAnnotator.exe"
 }
 
+$InternalDir = Join-Path $AppDir "_internal"
+if (-not (Test-Path $InternalDir)) {
+    $InternalDir = $AppDir
+}
+
+$RequiredBundleFiles = @(
+    "customtkinter\assets\themes\blue.json",
+    "pymupdf\mupdfcpp64.dll",
+    "pymupdf\_mupdf.pyd",
+    "web\index.html",
+    "web\pdf.min.js",
+    "web\pdf.worker.min.js",
+    "config\default.yaml"
+)
+$Missing = @()
+foreach ($rel in $RequiredBundleFiles) {
+    if (-not (Test-Path (Join-Path $InternalDir $rel))) {
+        $Missing += $rel
+    }
+}
+if ($Missing.Count -gt 0) {
+    throw ("打包校验失败，缺少关键资源:`n - " + ($Missing -join "`n - "))
+}
+
+Write-Host "==> 打包资源校验通过"
 Write-Host "==> 便携版已生成: $AppDir"
 
 $IsccCandidates = @(
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
-    "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+    "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
 )
 $Iscc = $IsccCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 

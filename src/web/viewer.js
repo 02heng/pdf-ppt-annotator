@@ -1,7 +1,15 @@
 /* PDF.js 批注预览 + 演示工具（聚焦 / 激光笔 / 墨迹，参考 PPT 放映与 pdf-annotate overlay 思路） */
-const PDFJS_VERSION = "3.11.174";
-pdfjsLib.GlobalWorkerOptions.workerSrc =
-  `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}/pdf.worker.min.js`;
+if (typeof pdfjsLib === "undefined") {
+  document.addEventListener("DOMContentLoaded", () => {
+    document.body.innerHTML =
+      '<div style="padding:32px;font-family:system-ui,Microsoft YaHei,sans-serif;color:#5b21b6">' +
+      '<h2>预览组件加载失败</h2>' +
+      '<p>未能加载本地 PDF.js（pdf.min.js）。请重新安装或确认安装目录中的 web 资源完整。</p>' +
+      '</div>';
+  });
+  throw new Error("pdfjsLib is not loaded (pdf.min.js missing)");
+}
+pdfjsLib.GlobalWorkerOptions.workerSrc = "pdf.worker.min.js";
 
 const canvas = document.getElementById("pdf-canvas");
 const ctx = canvas.getContext("2d");
