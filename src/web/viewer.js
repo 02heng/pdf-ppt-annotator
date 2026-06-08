@@ -1076,7 +1076,6 @@ function renderMarkers(pageIndex, restoreIndex = null) {
       if (item.box_width && item.box_width > 0) {
         inline.style.width = `${item.box_width * viewportScale}px`;
         inline.style.maxWidth = `${item.box_width * viewportScale}px`;
-        inline.style.overflow = "hidden";
       } else {
         const layerW = layer.clientWidth || 800;
         if (item.placement === "below" && item.box_width) {
@@ -1087,8 +1086,7 @@ function renderMarkers(pageIndex, restoreIndex = null) {
       }
 
       if (item.box_height && item.box_height > 0) {
-        inline.style.height = `${item.box_height * viewportScale}px`;
-        inline.style.overflow = "hidden";
+        inline.style.minHeight = `${item.box_height * viewportScale}px`;
       }
 
       if (item.placement === "above") {

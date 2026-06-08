@@ -6,7 +6,6 @@ setup(
     packages=find_packages(),
     install_requires=[
         "crewai>=1.14.0",
-        "customtkinter>=5.2.0",
         "PyMuPDF>=1.23.0",
         "python-pptx>=0.6.21",
         "openai>=1.0.0",

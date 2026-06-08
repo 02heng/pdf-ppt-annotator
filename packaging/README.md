@@ -16,10 +16,10 @@ python scripts/generate_app_icons.py
 | `assets/branding/icon.png` | macOS `.app`、通用 512×512 |
 | `assets/branding/logo.svg` | 矢量源稿（可改后重新运行脚本） |
 | `src/web/favicon.png` | 浏览器预览页标签图标 |
-| `assets/branding/toolbar-logo.png` | CustomTkinter / Electron 顶栏小图 |
+| `assets/branding/toolbar-logo.png` | Electron 顶栏小图 |
 | `electron/assets/*` | Electron 窗口图标与 NSIS 安装包（由脚本同步） |
 
-打包前 `build_windows.ps1` / CI 会自动执行上述脚本。
+打包前 `build_electron_windows.ps1` / CI 会自动执行上述脚本。
 
 ## Electron 版安装包（开箱即用，推荐）
 
@@ -47,35 +47,34 @@ npm run dist
 - 安装向导 / 卸载 / 快捷方式 / 任务栏：均使用 `assets/branding/icon.ico`（TO PDF 紫渐变 logo）
 - 内置后端：`resources/backend-bin/topdf-backend.exe`（PyInstaller onedir）
 
-### Electron 版安装包（NSIS）— 旧说明
+### macOS（Apple Silicon / Intel）
 
-与 AI-writer 相同：`npm run dist` 前自动生成 `electron/assets/icon.ico`，并通过 `after-pack.cjs` + `rcedit` 写入 exe，避免任务栏显示默认 Electron 图标。
-
-```powershell
-cd electron
-npm install
-npm run dist
+```bash
+chmod +x packaging/build_electron_mac.sh
+./packaging/build_electron_mac.sh arm64    # M 系列芯片
+./packaging/build_electron_mac.sh x86_64   # Intel Mac
 ```
 
-产物：`packaging/output/TO PDF 批注工具 Setup *.exe`（含安装向导图标）。
+产物：`packaging/output/TOPDFAnnotator-*-mac-arm64.dmg` 或 `*-mac-x64.dmg`
 
 ## GitHub Actions 自动打包（推荐）
 
-在 GitHub 云端同时构建 Windows 与 macOS，无需本机双平台环境。
+在 GitHub 云端同时构建 Windows 与 macOS（arm64 + Intel），无需本机双平台环境。
 
-**手动触发：** 仓库 → Actions → **Build Installers** → Run workflow
+**手动触发：** 仓库 → Actions → **Build Installers** → Run workflow（可选 `mac-only` 仅构建 Mac）
 
-**发布版本：** 版本号以仓库根目录 `VERSION` 文件为准（当前 `0.1.0`）。
+**发布版本：** 版本号以仓库根目录 `VERSION` 文件为准。
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 | 平台 | 产物 |
 |------|------|
-| Windows | `TOPDFAnnotator-Setup-0.1.0-win64.exe`、便携 zip |
-| macOS | `TOPDFAnnotator-0.1.0-mac.dmg` |
+| Windows | `TOPDFAnnotator-Setup-*-win64.exe` |
+| macOS arm64 | `TOPDFAnnotator-*-mac-arm64.dmg` |
+| macOS Intel | `TOPDFAnnotator-*-mac-x64.dmg` |
 
 打 tag 会自动创建 GitHub Release；手动触发时在 Actions 运行记录的 **Artifacts** 下载。
 
@@ -83,53 +82,8 @@ git push origin v0.1.0
 
 | 平台 | 要求 |
 |------|------|
-| Windows | Python 3.10+、本仓库源码 |
-| macOS | Python 3.10+、Xcode Command Line Tools |
-
-可选：
-
-- **Windows 安装包**： [Inno Setup 6](https://jrsoftware.org/isdl.php)
-- **macOS**：系统自带 `hdiutil`（用于生成 `.dmg`）
-
-## Windows
-
-在项目根目录 PowerShell 中执行：
-
-```powershell
-.\packaging\build_windows.ps1
-```
-
-产物：
-
-| 类型 | 路径 |
-|------|------|
-| 便携版（文件夹） | `dist\TOPDFAnnotator\` |
-| 安装程序（需 Inno Setup） | `packaging\output\TOPDFAnnotator-Setup-*-win64.exe` |
-
-分发给用户：
-
-- **推荐**：`TOPDFAnnotator-Setup-*.exe` 双击安装
-- **免安装**：将整个 `dist\TOPDFAnnotator` 文件夹打成 zip 分发，运行其中的 `TOPDFAnnotator.exe`
-
-## macOS
-
-在 Mac 上克隆仓库后执行：
-
-```bash
-chmod +x packaging/build_mac.sh
-./packaging/build_mac.sh
-```
-
-产物：
-
-| 类型 | 路径 |
-|------|------|
-| 应用包 | `dist/TOPDFAnnotator.app` |
-| 安装镜像 | `packaging/output/TOPDFAnnotator-*-mac.dmg` |
-
-用户将 `.app` 或 DMG 中的程序拖入「应用程序」即可。
-
-> **注意**：PyInstaller 无法在当前 Windows 机器上交叉编译 macOS 应用，必须在 Mac 上构建。
+| Windows | Python 3.10+、Node.js 20+ |
+| macOS | Python 3.10+、Node.js 20+、Xcode Command Line Tools |
 
 ## 用户数据与配置
 

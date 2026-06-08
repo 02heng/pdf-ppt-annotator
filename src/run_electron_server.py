@@ -1,7 +1,4 @@
-"""Electron 无 GUI 后端入口 — 供 PyInstaller 冻结为 topdf-backend.exe
-
-不导入 src.main（会引入 customtkinter GUI 层），直接加载配置并启动 Flask。
-"""
+"""Electron 无 GUI 后端入口 — 供 PyInstaller 冻结为 topdf-backend.exe"""
 from __future__ import annotations
 
 import multiprocessing

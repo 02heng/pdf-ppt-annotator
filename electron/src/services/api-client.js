@@ -1,6 +1,6 @@
 /**
  * Python 后端 API 通信层
- * 与 src/services/web_preview_server.py Flask 端对接
+ * 与 src/services/electron_backend.py Flask 端对接
  */
 const ApiClient = (() => {
   let baseUrl = 'http://localhost:8765';

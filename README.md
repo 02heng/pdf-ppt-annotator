@@ -19,8 +19,8 @@
 
 | 平台 | 开发者构建命令 | 分发给用户 |
 |------|----------------|------------|
-| Windows | `.\packaging\build_windows.ps1` | `packaging\output\TOPDFAnnotator-Setup-0.1.0-win64.exe` |
-| macOS | GitHub Actions 或 `./packaging/build_mac.sh` | `packaging/output/TOPDFAnnotator-0.1.0-mac.dmg` |
+| Windows | `.\packaging\build_electron_windows.ps1` | `packaging\output\TO PDF 批注工具 Setup *.exe` |
+| macOS | `./packaging/build_electron_mac.sh arm64` / `x86_64` 或 GitHub Actions | `TOPDFAnnotator-*-mac-*.dmg` |
 
 发布 **v0.1.0** 安装包：推送标签 `git push origin v0.1.0` 后，在 [Releases](https://github.com/02heng/pdf-ppt-annotator/releases) 下载 Windows / macOS 安装包，**无需安装 Python**。
 
@@ -43,11 +43,15 @@ pip install -r requirements.txt
 
 编辑 `config/default.yaml` 或在应用「设置」中填写 API Key。
 
-#### 4. 运行
+#### 4. 运行（Electron 开发模式）
 
 ```bash
-python -m src.main
+cd electron
+npm install
+npm start
 ```
+
+后端 API 默认监听 `http://127.0.0.1:8765`。
 
 ## 使用说明
 
@@ -60,7 +64,7 @@ python -m src.main
 ## 技术栈
 
 - **多智能体框架**: CrewAI
-- **桌面 UI**: CustomTkinter
+- **桌面 UI**: Electron + HTML/CSS/JS
 - **PDF 处理**: PyMuPDF
 - **PPT 处理**: python-pptx
 - **LLM**: OpenAI API / Ollama

@@ -228,7 +228,6 @@ const Annotations = (() => {
     if (item.box_width && item.box_width > 0) {
       el.style.width = `${item.box_width * scale}px`;
       el.style.maxWidth = `${item.box_width * scale}px`;
-      el.style.overflow = 'hidden';
     } else {
       const placement = item.placement || 'right';
       if (placement === 'right') {
@@ -237,8 +236,7 @@ const Annotations = (() => {
     }
 
     if (item.box_height && item.box_height > 0) {
-      el.style.height = `${item.box_height * scale}px`;
-      el.style.overflow = 'hidden';
+      el.style.minHeight = `${item.box_height * scale}px`;
     }
 
     const placement = item.placement || 'right';
@@ -337,10 +335,9 @@ const Annotations = (() => {
 
     el.style.width = `${newW}px`;
     el.style.maxWidth = `${newW}px`;
-    el.style.height = `${newH}px`;
+    el.style.minHeight = `${newH}px`;
     el.style.left = `${newLeft}px`;
     el.style.top = `${newTop}px`;
-    el.style.overflow = 'hidden';
 
     resizeSession._newW = newW;
     resizeSession._newH = newH;

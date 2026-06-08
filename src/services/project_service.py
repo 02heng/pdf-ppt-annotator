@@ -9,13 +9,11 @@ import tempfile
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional
 
+from src.models.annotation_marker import AnnotationMarker
 from src.utils.file_utils import file_key
 from src.utils.preview_ink_store import ink_pages_from_json, ink_pages_to_json, normalize_ink_pages
-
-if TYPE_CHECKING:
-    from src.ui.app import App, AnnotationMarker
 
 PROJECT_VERSION = 1
 PROJECT_EXT = ".topdf"
@@ -71,11 +69,7 @@ def _marker_to_dict(marker: "AnnotationMarker") -> Dict[str, Any]:
     return data
 
 
-def _dict_to_marker(data: Dict[str, Any]) -> "AnnotationMarker":
-    try:
-        from src.ui.app import AnnotationMarker
-    except Exception:
-        from src.services.electron_backend import AnnotationMarker
+def _dict_to_marker(data: Dict[str, Any]) -> AnnotationMarker:
     from src.utils.block_font_size import GENERATED_INLINE_FONT_PT
 
     original_text = str(data.get("original_text", ""))
@@ -122,7 +116,7 @@ def _annotations_from_json(data: Dict[str, Dict[str, List[Dict[str, Any]]]]) -> 
     return result
 
 
-def build_snapshot(app: "App") -> Dict[str, Any]:
+def build_snapshot(app: Any) -> Dict[str, Any]:
     app._persist_current_file_annotations()
     app._rekey_annotations_by_file()
     existing_files = [f for f in app.selected_files if os.path.isfile(f)]
@@ -155,7 +149,7 @@ def build_snapshot(app: "App") -> Dict[str, Any]:
     }
 
 
-def save_session(app: "App") -> None:
+def save_session(app: Any) -> None:
     """保存会话；无文件时清除会话，避免重启后恢复已移除的文件"""
     if not app.settings.app.auto_save:
         return
@@ -189,7 +183,7 @@ def load_session() -> Optional[Dict[str, Any]]:
         return None
 
 
-def apply_snapshot(app: "App", data: Dict[str, Any], *, project_root: str = "") -> bool:
+def apply_snapshot(app: Any, data: Dict[str, Any], *, project_root: str = "") -> bool:
     files = data.get("files") or []
     valid_files: List[str] = []
 
@@ -288,14 +282,14 @@ def apply_snapshot(app: "App", data: Dict[str, Any], *, project_root: str = "") 
     return True
 
 
-def restore_session(app: "App") -> bool:
+def restore_session(app: Any) -> bool:
     data = load_session()
     if not data:
         return False
     return apply_snapshot(app, data)
 
 
-def save_project(app: "App", project_path: str) -> None:
+def save_project(app: Any, project_path: str) -> None:
     project_path = os.path.abspath(project_path)
     if not project_path.lower().endswith(PROJECT_EXT):
         project_path += PROJECT_EXT
@@ -353,7 +347,7 @@ def save_project(app: "App", project_path: str) -> None:
     app.project_file_path = project_path
 
 
-def load_project(app: "App", project_path: str) -> None:
+def load_project(app: Any, project_path: str) -> None:
     project_path = os.path.abspath(project_path)
     extract_dir = os.path.splitext(project_path)[0] + "_data"
     os.makedirs(extract_dir, exist_ok=True)

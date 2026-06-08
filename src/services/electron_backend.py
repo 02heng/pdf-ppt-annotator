@@ -1,6 +1,6 @@
 """Electron 无 GUI 后端：完整 Flask API 服务器。
 
-替代 CustomTkinter App 类，管理所有应用状态并暴露 REST 端点给 Electron 渲染进程。
+管理应用状态并暴露 REST 端点给 Electron 渲染进程。
 端点清单与 electron/src/services/api-client.js 一一对齐。
 """
 from __future__ import annotations
@@ -19,6 +19,7 @@ from flask import Flask, jsonify, request, send_file
 
 import yaml
 
+from src.models.annotation_marker import AnnotationMarker, marker_to_dict, serialize_annotations_for_web
 from src.models.config import Settings, LLMConfig
 from src.utils.file_utils import file_key
 from src.utils.preview_ink_store import ink_pages_from_json, ink_pages_to_json, normalize_ink_pages
@@ -26,99 +27,11 @@ from src.utils.runtime import get_local_config_path
 
 
 def _save_config_headless(settings: Settings) -> None:
-    """保存配置到 local.yaml，不导入 src.main 避免引入 GUI 层。"""
+    """保存配置到 local.yaml。"""
     local_path = get_local_config_path()
     local_path.parent.mkdir(parents=True, exist_ok=True)
     with open(local_path, "w", encoding="utf-8") as f:
         yaml.dump(settings.model_dump(), f, allow_unicode=True)
-
-
-# ---------------------------------------------------------------------------
-# AnnotationMarker（headless 版本，去掉 Tk 画布相关字段）
-# ---------------------------------------------------------------------------
-
-class AnnotationMarker:
-    """批注标记（无 GUI 版本）"""
-
-    def __init__(
-        self,
-        x: int,
-        y: int,
-        text: str,
-        color: str = "#7C3AED",
-        *,
-        display_mode: str = "marker",
-        original_text: str = "",
-        placement: str = "right",
-        box_width: int = 0,
-        box_height: int = 0,
-        source_x: int = None,
-        source_y: int = None,
-        text_orientation: str = "horizontal",
-        font_size: int = 12,
-        font_family: str = "",
-        style_kind: str = "inline",
-    ):
-        self.x = x
-        self.y = y
-        self.text = text
-        self.color = color
-        self.display_mode = display_mode
-        self.original_text = original_text
-        self.placement = placement
-        self.box_width = box_width
-        self.box_height = box_height
-        self.source_x = source_x
-        self.source_y = source_y
-        self.text_orientation = text_orientation or "horizontal"
-        self.font_size = font_size
-        self.font_family = font_family
-        self.style_kind = style_kind
-
-
-def marker_to_dict(m: AnnotationMarker) -> Dict[str, Any]:
-    d: Dict[str, Any] = {
-        "x": m.x, "y": m.y, "text": m.text, "color": m.color,
-    }
-    if m.display_mode != "marker":
-        d["display_mode"] = m.display_mode
-    if m.original_text:
-        d["original_text"] = m.original_text
-    if m.placement:
-        d["placement"] = m.placement
-    if m.box_width:
-        d["box_width"] = m.box_width
-    if m.box_height:
-        d["box_height"] = m.box_height
-    if m.source_x is not None:
-        d["source_x"] = m.source_x
-    if m.source_y is not None:
-        d["source_y"] = m.source_y
-    if m.font_size:
-        d["font_size"] = m.font_size
-    if m.font_family:
-        d["font_family"] = m.font_family
-    orient = m.text_orientation or ""
-    if orient and orient != "horizontal":
-        d["text_orientation"] = orient
-    if m.style_kind:
-        d["style_kind"] = m.style_kind
-    return d
-
-
-def serialize_annotations_for_web(annotations: Dict[int, List[AnnotationMarker]]) -> Dict[str, list]:
-    """与 web_preview_server.update_from_app 一致：含 index，跳过空页。"""
-    ann_pages: Dict[str, list] = {}
-    for page_num, markers in annotations.items():
-        if not markers:
-            continue
-        page_items = []
-        for i, m in enumerate(markers):
-            item = marker_to_dict(m)
-            item["index"] = i + 1
-            page_items.append(item)
-        ann_pages[str(page_num)] = page_items
-    return ann_pages
 
 
 def dict_to_marker(data: Dict[str, Any]) -> AnnotationMarker:
@@ -142,7 +55,7 @@ def dict_to_marker(data: Dict[str, Any]) -> AnnotationMarker:
 
 
 # ---------------------------------------------------------------------------
-# HeadlessApp — 管理与 CustomTkinter App 相同的状态，但无 GUI
+# HeadlessApp — Electron 后端应用状态
 # ---------------------------------------------------------------------------
 
 class HeadlessApp:
@@ -877,7 +790,7 @@ def _update_annotate_job(app_state: HeadlessApp, **fields) -> None:
 
 
 def _run_batch_annotate_worker(app_state: HeadlessApp, start_page: int, end_page: int) -> None:
-    """后台批量批注 — 对齐 src/ui/toolbar.py _on_annotate_all worker"""
+    """后台批量批注 worker"""
     job_total = end_page - start_page + 1
     source_path = app_state.selected_files[app_state.current_file_index]
     pdf_path = app_state.get_render_pdf_path(source_path)

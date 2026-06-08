@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller：冻结 Electron 用 Flask 后端（不含 CustomTkinter GUI）。"""
+"""PyInstaller：冻结 Electron 用 Flask 后端。"""
 import sys
 from pathlib import Path
 
@@ -50,9 +50,6 @@ for pkg in ("flask", "werkzeug", "pydantic", "liteparse"):
         pass
 
 excludes = [
-    "tkinter",
-    "customtkinter",
-    "darkdetect",
     "matplotlib",
     "IPython",
     "pytest",

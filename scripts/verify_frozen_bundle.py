@@ -1,4 +1,4 @@
-"""在 PyInstaller 输出目录中验证关键资源与 PyMuPDF 导入。"""
+"""在 PyInstaller 输出目录中验证 Electron 后端关键资源与 PyMuPDF 导入。"""
 from __future__ import annotations
 
 import os
@@ -8,12 +8,11 @@ from pathlib import Path
 
 def main() -> int:
     root = Path(__file__).resolve().parent.parent
-    internal = root / "dist" / "TOPDFAnnotator" / "_internal"
+    internal = root / "packaging" / "dist" / "topdf-backend" / "_internal"
     if not internal.is_dir():
-        internal = root / "dist" / "TOPDFAnnotator"
+        internal = root / "packaging" / "dist" / "topdf-backend"
 
     required = [
-        internal / "customtkinter" / "assets" / "themes" / "blue.json",
         internal / "pymupdf" / "mupdfcpp64.dll",
         internal / "pymupdf" / "_mupdf.pyd",
         internal / "web" / "index.html",
@@ -41,7 +40,7 @@ def main() -> int:
 
     import fitz  # noqa: F401
 
-    print("OK: bundle resources and fitz import verified")
+    print("OK: topdf-backend bundle resources and fitz import verified")
     return 0
 
 

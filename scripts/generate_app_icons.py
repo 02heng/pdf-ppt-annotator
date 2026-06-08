@@ -13,7 +13,7 @@ BRAND = ROOT / "assets" / "branding"
 WEB = ROOT / "src" / "web"
 ELECTRON = ROOT / "electron" / "assets"
 
-# 与 src/ui/theme.py 一致
+# 与 Electron 主题色一致
 PURPLE_LIGHT = (167, 139, 250)
 PURPLE_MID = (124, 58, 237)
 PURPLE_DARK = (91, 33, 182)

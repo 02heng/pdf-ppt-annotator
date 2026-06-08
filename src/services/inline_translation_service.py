@@ -49,7 +49,7 @@ MAX_CHARS_PER_BLOCK = 800
 
 def generate_inline_markers_for_page(app, page_num: int, llm_config: LLMConfig) -> List[Any]:
     """提取页内文本块 → 批量翻译 → 生成 inline AnnotationMarker 列表。"""
-    from src.ui.app import AnnotationMarker
+    from src.models.annotation_marker import AnnotationMarker
 
     if not app.pdf_doc or page_num < 0 or page_num >= app.total_pages:
         return []
