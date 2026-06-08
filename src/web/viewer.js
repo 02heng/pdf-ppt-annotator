@@ -58,8 +58,11 @@ let annotationsByPage = {};
 let activeMarker = null;
 let activeMarkerIndex = null;
 let lastPdfToken = "";
+let lastFileIndex = null;
 let lastStateFingerprint = "";
+let lastAnnotationsFingerprint = "";
 let lastInkFingerprint = "";
+let lastServerPage = null;
 
 /* —— 演示工具 —— */
 let currentTool = "pointer";
@@ -930,8 +933,11 @@ async function fetchState() {
   return res.json();
 }
 
-async function loadPdf() {
-  const res = await fetch("/api/pdf");
+async function loadPdf(pdfToken) {
+  const q = pdfToken
+    ? `?v=${encodeURIComponent(pdfToken)}`
+    : `?t=${Date.now()}`;
+  const res = await fetch(`/api/pdf${q}`, { cache: "no-store" });
   if (!res.ok) throw new Error("PDF 不可用");
   const data = await res.arrayBuffer();
   pdfDoc = await pdfjsLib.getDocument({ data }).promise;
@@ -941,11 +947,16 @@ async function loadPdf() {
 function stateFingerprint(state) {
   return JSON.stringify({
     pdf_token: state.pdf_token || "",
+    current_file_index: state.current_file_index ?? -1,
     current_page: state.current_page || 0,
     total_pages: state.total_pages || 0,
     annotations: state.annotations || {},
     ink_pages: state.ink_pages || {},
   });
+}
+
+function annotationsFingerprint(state) {
+  return JSON.stringify(state.annotations || {});
 }
 
 function inkFingerprint(state) {
@@ -1055,22 +1066,40 @@ function renderMarkers(pageIndex, restoreIndex = null) {
       inline.className = "annot-inline";
       inline.dataset.index = String(item.index);
       inline.style.color = item.color || "#7c2d12";
-      inline.style.fontSize = `${(item.font_size || 10) * viewportScale}px`;
+      const inlineFontPt = (item.original_text || "").trim() ? 10 : (item.font_size || 12);
+      inline.style.fontSize = `${inlineFontPt * viewportScale}px`;
+      inline.style.fontFamily = item.font_family || "inherit";
       inline.style.fontWeight = "600";
       inline.style.left = `${item.x * viewportScale}px`;
       inline.style.top = `${item.y * viewportScale}px`;
+
+      if (item.box_width && item.box_width > 0) {
+        inline.style.width = `${item.box_width * viewportScale}px`;
+        inline.style.maxWidth = `${item.box_width * viewportScale}px`;
+        inline.style.overflow = "hidden";
+      } else {
+        const layerW = layer.clientWidth || 800;
+        if (item.placement === "below" && item.box_width) {
+          inline.style.maxWidth = `${item.box_width * viewportScale}px`;
+        } else if (item.placement === "right") {
+          inline.style.maxWidth = `${Math.max(120, layerW - item.x * viewportScale)}px`;
+        }
+      }
+
+      if (item.box_height && item.box_height > 0) {
+        inline.style.height = `${item.box_height * viewportScale}px`;
+        inline.style.overflow = "hidden";
+      }
+
       if (item.placement === "above") {
         inline.style.transform = "translate(-2px, -100%)";
         inline.style.transformOrigin = "left bottom";
       } else if (item.placement === "right") {
         inline.style.transformOrigin = "left center";
+      } else {
+        inline.style.transformOrigin = "left top";
       }
-      if (item.placement === "below" && item.box_width) {
-        inline.style.maxWidth = `${item.box_width * viewportScale}px`;
-      }
-      if (item.placement === "right" && item.box_width) {
-        inline.style.maxWidth = `${Math.max(120, (layer.clientWidth || 800) - item.x * viewportScale)}px`;
-      }
+
       inline.textContent = item.text || "";
       if (item.text_orientation === "vertical") {
         inline.classList.add("vertical");
@@ -1289,6 +1318,18 @@ async function updateMarkersOnly() {
   renderMarkers(currentPage, activeMarkerIndex);
 }
 
+async function syncPageToServer(pageNum) {
+  try {
+    await fetch("/api/navigate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ page: pageNum }),
+    });
+  } catch (_) {
+    /* 预览内翻页同步失败时不打断浏览 */
+  }
+}
+
 async function refresh(force = false) {
   try {
     const state = await fetchState();
@@ -1297,6 +1338,16 @@ async function refresh(force = false) {
     if (inkChanged) {
       lastInkFingerprint = inkFp;
       applyServerInkPages(state.ink_pages);
+    }
+
+    const annFp = annotationsFingerprint(state);
+    const annChanged = force || annFp !== lastAnnotationsFingerprint;
+    if (annChanged) {
+      lastAnnotationsFingerprint = annFp;
+      annotationsByPage = state.annotations || {};
+      if (pdfDoc) {
+        await updateMarkersOnly();
+      }
     }
 
     const fingerprint = stateFingerprint(state);
@@ -1313,27 +1364,33 @@ async function refresh(force = false) {
     totalPages = state.total_pages || 0;
 
     const newToken = state.pdf_token || "";
-    const pdfTokenChanged = newToken && newToken !== lastPdfToken;
-    if (pdfTokenChanged) {
+    const serverFileIndex = state.current_file_index ?? -1;
+    const pdfTokenChanged = Boolean(newToken) && newToken !== lastPdfToken;
+    const fileIndexChanged = lastFileIndex !== null && serverFileIndex !== lastFileIndex;
+    if (pdfTokenChanged || fileIndexChanged) {
       pdfDoc = null;
       activeMarkerIndex = null;
       lastPdfToken = newToken;
+      lastFileIndex = serverFileIndex;
       const fromServer = await loadInkFromServer();
       if (!fromServer) loadInkStore();
     } else if (newToken) {
       lastPdfToken = newToken;
+      lastFileIndex = serverFileIndex;
+    } else {
+      lastFileIndex = serverFileIndex;
     }
 
     if (!pdfDoc && state.pdf_available) {
-      await loadPdf();
+      await loadPdf(newToken);
       totalPages = pdfDoc.numPages;
-      if (pdfTokenChanged) {
+      if (pdfTokenChanged || fileIndexChanged) {
         const fromServer = await loadInkFromServer();
         if (!fromServer) loadInkStore();
       } else if (newToken) {
         loadInkStore();
       }
-    } else if (pdfTokenChanged) {
+    } else if (pdfTokenChanged || fileIndexChanged) {
       lastInkFingerprint = inkFingerprint(state);
       applyServerInkPages(state.ink_pages);
     }
@@ -1344,10 +1401,21 @@ async function refresh(force = false) {
     }
 
     annotationsByPage = newAnnotations;
-    const targetPage = Math.max(0, Math.min(serverPage, pdfDoc.numPages - 1));
+
+    // 实时同步时保持预览当前页，仅在首次加载 / 换 PDF / 强制刷新 / 桌面端主动翻页时跟随 serverPage
+    let targetPage;
+    if (force || pdfTokenChanged || fileIndexChanged || !prevFingerprint) {
+      targetPage = Math.max(0, Math.min(serverPage, pdfDoc.numPages - 1));
+    } else if (lastServerPage !== null && serverPage !== lastServerPage) {
+      targetPage = Math.max(0, Math.min(serverPage, pdfDoc.numPages - 1));
+    } else {
+      targetPage = Math.max(0, Math.min(currentPage, pdfDoc.numPages - 1));
+    }
+    lastServerPage = serverPage;
+
     const pageChanged = targetPage !== currentPage;
 
-    if (pdfTokenChanged || !prevFingerprint || pageChanged) {
+    if (pdfTokenChanged || fileIndexChanged || !prevFingerprint || pageChanged) {
       if (pageChanged) {
         activeMarkerIndex = null;
       }
@@ -1367,13 +1435,17 @@ async function refresh(force = false) {
 document.getElementById("btn-prev").addEventListener("click", async () => {
   if (!pdfDoc || currentPage <= 0) return;
   activeMarkerIndex = null;
-  await renderPage(currentPage - 1);
+  const next = currentPage - 1;
+  await renderPage(next);
+  syncPageToServer(next);
 });
 
 document.getElementById("btn-next").addEventListener("click", async () => {
   if (!pdfDoc || currentPage >= totalPages - 1) return;
   activeMarkerIndex = null;
-  await renderPage(currentPage + 1);
+  const next = currentPage + 1;
+  await renderPage(next);
+  syncPageToServer(next);
 });
 
 document.getElementById("btn-refresh").addEventListener("click", () => refresh(true));

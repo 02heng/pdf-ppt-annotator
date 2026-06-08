@@ -5,6 +5,11 @@ from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
+try:
+    from PyInstaller.utils.hooks import collect_all as _collect_all
+except ImportError:
+    _collect_all = None
+
 ROOT = Path(SPECPATH).resolve().parent
 _version_file = ROOT / "VERSION"
 APP_VERSION = (
@@ -35,7 +40,14 @@ if _brand.is_dir():
     datas.append((str(_brand), "assets/branding"))
 
 # CustomTkinter 主题/字体（缺失会导致启动闪退）
-datas += collect_data_files("customtkinter")
+if _collect_all is not None:
+    _ctk_datas, _ctk_binaries, _ctk_hidden = _collect_all("customtkinter")
+    datas += _ctk_datas
+    _binaries = []
+    _binaries += _ctk_binaries
+else:
+    datas += collect_data_files("customtkinter")
+    _binaries = []
 # darkdetect：CustomTkinter 在 macOS 上用它探测系统外观，缺失会启动闪退
 try:
     datas += collect_data_files("darkdetect")
@@ -56,6 +68,7 @@ except ImportError:
 hiddenimports = [
     "PIL._tkinter_finder",
     "PIL.ImageTk",
+    "PIL._imagingtk",
     "fitz",
     "pymupdf",
     "pymupdf._mupdf",
@@ -68,6 +81,8 @@ hiddenimports = [
     "darkdetect",
     "customtkinter",
 ]
+if _collect_all is not None:
+    hiddenimports += _ctk_hidden
 for pkg in ("flask", "pydantic", "liteparse"):
     try:
         hiddenimports += collect_submodules(pkg)
@@ -87,7 +102,7 @@ import os as _os
 import glob as _glob
 
 # PyMuPDF 原生库（缺失会导致 PDF 预览白屏）
-_binaries = collect_dynamic_libs("pymupdf")
+_binaries += collect_dynamic_libs("pymupdf")
 _pymupdf_dir = _os.path.dirname(_os.path.abspath(__import__("pymupdf").__file__))
 if sys.platform == "win32":
     _mupdf_dll = _os.path.join(_pymupdf_dir, "mupdfcpp64.dll")

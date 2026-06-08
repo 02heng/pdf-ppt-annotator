@@ -72,7 +72,10 @@ def _marker_to_dict(marker: "AnnotationMarker") -> Dict[str, Any]:
 
 
 def _dict_to_marker(data: Dict[str, Any]) -> "AnnotationMarker":
-    from src.ui.app import AnnotationMarker
+    try:
+        from src.ui.app import AnnotationMarker
+    except Exception:
+        from src.services.electron_backend import AnnotationMarker
     from src.utils.block_font_size import GENERATED_INLINE_FONT_PT
 
     original_text = str(data.get("original_text", ""))

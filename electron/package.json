@@ -1,0 +1,75 @@
+{
+  "name": "topdf-annotator",
+  "version": "0.2.0",
+  "description": "TO PDF · 中文批注 — Electron Edition",
+  "author": "TO PDF",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "icons": "python ../scripts/generate_app_icons.py",
+    "prepare-vendor": "node scripts/prepare-vendor.cjs",
+    "build-backend": "node scripts/build-backend.cjs",
+    "prepack": "npm run icons && npm run prepare-vendor",
+    "predist": "npm run icons && npm run prepare-vendor && npm run build-backend",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --publish never",
+    "build": "npm run dist"
+  },
+  "build": {
+    "appId": "com.topdf.annotator",
+    "productName": "TO PDF 批注工具",
+    "icon": "assets/icon.ico",
+    "directories": {
+      "output": "../packaging/output"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      "assets/**",
+      "src/**",
+      "vendor/**",
+      "scripts/after-pack.cjs"
+    ],
+    "extraResources": [
+      {
+        "from": "../packaging/dist/topdf-backend",
+        "to": "backend-bin"
+      }
+    ],
+    "afterPack": "./scripts/after-pack.cjs",
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/icon.ico",
+      "signAndEditExecutable": false
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "assets/icon.png",
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "gatekeeperAssess": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico",
+      "shortcutName": "TO PDF 批注工具"
+    }
+  },
+  "dependencies": {
+    "pdfjs-dist": "^4.10.38"
+  },
+  "devDependencies": {
+    "electron": "^33.3.1",
+    "electron-builder": "^25.1.8",
+    "rcedit": "^5.0.2"
+  }
+}

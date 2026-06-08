@@ -11,6 +11,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 ROOT = Path(__file__).resolve().parent.parent
 BRAND = ROOT / "assets" / "branding"
 WEB = ROOT / "src" / "web"
+ELECTRON = ROOT / "electron" / "assets"
 
 # 与 src/ui/theme.py 一致
 PURPLE_LIGHT = (167, 139, 250)
@@ -164,12 +165,11 @@ def _resize_logo(src: Image.Image, target: int, *, compact: bool) -> Image.Image
 
 
 def write_ico(master: Image.Image, path: Path) -> None:
-    frames = [_resize_logo(master, n, compact=n <= 48) for n in ICO_SIZES]
-    frames[0].save(
+    base = master.resize((256, 256), Image.Resampling.LANCZOS)
+    base.save(
         path,
         format="ICO",
         sizes=[(n, n) for n in ICO_SIZES],
-        append_images=frames[1:],
     )
 
 
@@ -226,13 +226,32 @@ def main() -> int:
     _resize_logo(logo, 64, compact=True).save(fav, "PNG")
     print(f"[icons] OK -> {fav}")
 
-    brand = WEB / "brand-logo.png"
-    logo.resize((256, 256), Image.Resampling.LANCZOS).save(brand, "PNG")
-    print(f"[icons] OK -> {brand}")
-
     toolbar = BRAND / "toolbar-logo.png"
     _resize_logo(logo, 72, compact=False).save(toolbar, "PNG")
     print(f"[icons] OK -> {toolbar}")
+
+    brand = WEB / "brand-logo.png"
+    brand.write_bytes(toolbar.read_bytes())
+    print(f"[icons] OK -> {brand}")
+
+    fav_ico = WEB / "favicon.ico"
+    fav_ico.write_bytes(icon_ico.read_bytes())
+    print(f"[icons] OK -> {fav_ico}")
+
+    ELECTRON.mkdir(parents=True, exist_ok=True)
+    for src, name in (
+        (icon_png, "icon.png"),
+        (icon_ico, "icon.ico"),
+        (toolbar, "toolbar-logo.png"),
+    ):
+        dest = ELECTRON / name
+        if src.resolve() != dest.resolve():
+            dest.write_bytes(src.read_bytes())
+        print(f"[icons] OK -> {dest}")
+
+    app_icon = ELECTRON / "app-icon.png"
+    logo.resize((512, 512), Image.Resampling.LANCZOS).save(app_icon, "PNG")
+    print(f"[icons] OK -> {app_icon}")
 
     return 0
 

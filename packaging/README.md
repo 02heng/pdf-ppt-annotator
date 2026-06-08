@@ -16,9 +16,48 @@ python scripts/generate_app_icons.py
 | `assets/branding/icon.png` | macOS `.app`、通用 512×512 |
 | `assets/branding/logo.svg` | 矢量源稿（可改后重新运行脚本） |
 | `src/web/favicon.png` | 浏览器预览页标签图标 |
-| `src/web/brand-logo.png` | Web 顶栏、桌面顶栏小图 |
+| `assets/branding/toolbar-logo.png` | CustomTkinter / Electron 顶栏小图 |
+| `electron/assets/*` | Electron 窗口图标与 NSIS 安装包（由脚本同步） |
 
 打包前 `build_windows.ps1` / CI 会自动执行上述脚本。
+
+## Electron 版安装包（开箱即用，推荐）
+
+与 [AI-writer-master](../AI-writer-master) 相同：PyInstaller 冻结 Python 后端 + electron-builder NSIS + `rcedit` 写入 exe 图标。
+
+**用户无需安装 Python 或 pip**，安装后双击即可使用。
+
+在项目根目录 PowerShell 中执行：
+
+```powershell
+.\packaging\build_electron_windows.ps1
+```
+
+或分步：
+
+```powershell
+python scripts/generate_app_icons.py
+cd electron
+npm install
+npm run dist
+```
+
+产物：`packaging/output/TO PDF 批注工具 Setup *.exe`
+
+- 安装向导 / 卸载 / 快捷方式 / 任务栏：均使用 `assets/branding/icon.ico`（TO PDF 紫渐变 logo）
+- 内置后端：`resources/backend-bin/topdf-backend.exe`（PyInstaller onedir）
+
+### Electron 版安装包（NSIS）— 旧说明
+
+与 AI-writer 相同：`npm run dist` 前自动生成 `electron/assets/icon.ico`，并通过 `after-pack.cjs` + `rcedit` 写入 exe，避免任务栏显示默认 Electron 图标。
+
+```powershell
+cd electron
+npm install
+npm run dist
+```
+
+产物：`packaging/output/TO PDF 批注工具 Setup *.exe`（含安装向导图标）。
 
 ## GitHub Actions 自动打包（推荐）
 

@@ -58,7 +58,10 @@ class WebPreviewServer:
             path = server.state.pdf_path
             if not path or not os.path.isfile(path):
                 return jsonify({"error": "no pdf"}), 404
-            return send_file(path, mimetype="application/pdf")
+            response = send_file(path, mimetype="application/pdf")
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            return response
 
         @flask_app.get("/api/annotations")
         def api_annotations():

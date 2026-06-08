@@ -83,8 +83,33 @@ def save_config(settings: Settings) -> None:
         yaml.dump(settings.model_dump(), f, allow_unicode=True)
 
 
+def _parse_electron_args():
+    """解析 --electron / --port 命令行参数"""
+    import argparse
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--electron", action="store_true", default=False)
+    parser.add_argument("--port", type=int, default=8765)
+    args, _ = parser.parse_known_args()
+    return args
+
+
+def _is_electron_mode() -> bool:
+    """判断是否应以 Electron 无 GUI 模式启动"""
+    if os.environ.get("TOPDF_ELECTRON_MODE") == "1":
+        return True
+    return "--electron" in sys.argv
+
+
 def main():
     """主函数"""
+    if _is_electron_mode():
+        args = _parse_electron_args()
+        port = int(os.environ.get("TOPDF_API_PORT", args.port))
+        settings = load_config()
+        from src.services.electron_backend import run_electron_backend
+        run_electron_backend(settings, port=port)
+        return
+
     try:
         apply_ctk_patches()
         UITheme.install()

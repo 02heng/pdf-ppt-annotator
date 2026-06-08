@@ -23,3 +23,8 @@ session.json
 *.log
 Thumbs.db
 Desktop.ini
+
+# Node / Electron
+node_modules/
+electron/node_modules/
+temp_electron_install/

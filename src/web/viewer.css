@@ -47,10 +47,11 @@ body {
 }
 
 .toolbar-brand {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 8px;
   flex-shrink: 0;
+  object-fit: contain;
 }
 
 .toolbar {
