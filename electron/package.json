@@ -30,7 +30,8 @@
       "assets/**",
       "src/**",
       "vendor/**",
-      "scripts/after-pack.cjs"
+      "scripts/after-pack.cjs",
+      "scripts/after-sign-mac.cjs"
     ],
     "extraResources": [
       {
@@ -39,6 +40,7 @@
       }
     ],
     "afterPack": "./scripts/after-pack.cjs",
+    "afterSign": "./scripts/after-sign-mac.cjs",
     "win": {
       "target": [
         "nsis"
@@ -52,7 +54,7 @@
       ],
       "icon": "assets/icon.png",
       "category": "public.app-category.productivity",
-      "identity": null,
+      "hardenedRuntime": false,
       "gatekeeperAssess": false
     },
     "nsis": {
