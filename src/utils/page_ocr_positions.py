@@ -207,7 +207,7 @@ def vision_native_for_inline(llm_config: Optional["LLMConfig"]) -> bool:
     if not _vision_ocr_usable(llm_config):
         return False
     provider = llm_config.provider
-    if provider in ("openai", "ollama", "xiaomi", "agnes"):
+    if provider in ("openai", "claude", "ollama", "xiaomi", "agnes"):
         return True
     if provider == "deepseek":
         name = (llm_config.deepseek.model or "deepseek-v4-pro").lower()
@@ -221,6 +221,8 @@ def _vision_ocr_usable(llm_config: Optional["LLMConfig"]) -> bool:
     provider = llm_config.provider
     if provider == "openai":
         return bool(llm_config.openai.api_key)
+    if provider == "claude":
+        return bool(llm_config.claude.api_key) and bool(llm_config.claude.base_url)
     if provider == "ollama":
         return bool(llm_config.ollama.base_url)
     if provider == "deepseek":
@@ -343,6 +345,8 @@ def _vision_extract_max_tokens(llm_config: "LLMConfig") -> int:
         cap = max(cap, int(llm_config.xiaomi.max_tokens or 4096))
     elif llm_config.provider == "openai":
         cap = max(cap, int(llm_config.openai.max_tokens or 4096))
+    elif llm_config.provider == "claude":
+        cap = max(cap, int(llm_config.claude.max_tokens or 4096))
     elif llm_config.provider == "agnes":
         cap = max(cap, int(llm_config.agnes.max_tokens or 4096))
     return min(cap, 16384)
@@ -403,9 +407,20 @@ def _blocks_from_vision_llm(
         if provider == "openai":
             raw = svc._call_openai_compatible_vision(
                 api_key=llm_config.openai.api_key,
-                base_url="",
+                base_url=llm_config.openai.base_url,
                 model=llm_config.openai.model,
                 temperature=llm_config.openai.temperature,
+                max_tokens=tok,
+                images_b64=[image_b64],
+                prompt=prompt,
+            )
+        elif provider == "claude":
+            cfg = llm_config.claude
+            raw = svc._call_openai_compatible_vision(
+                api_key=cfg.api_key,
+                base_url=cfg.base_url,
+                model=cfg.model,
+                temperature=cfg.temperature,
                 max_tokens=tok,
                 images_b64=[image_b64],
                 prompt=prompt,

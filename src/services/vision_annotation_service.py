@@ -107,6 +107,7 @@ class VisionAnnotationService:
     def supports_vision(self) -> bool:
         return self.config.provider in (
             "openai",
+            "claude",
             "ollama",
             "deepseek",
             "xiaomi",
@@ -116,7 +117,7 @@ class VisionAnnotationService:
     def ensure_vision_provider(self) -> None:
         if not self.supports_vision():
             raise RuntimeError(
-                "请使用 OpenAI（gpt-4o）、小米 MiMo（mimo-v2.5）、Agnes（agnes-2.0-flash）、"
+                "请使用 OpenAI（gpt-4o）、Claude、小米 MiMo（mimo-v2.5）、Agnes（agnes-2.0-flash）、"
                 "Ollama 视觉模型，或 DeepSeek 视觉模型。"
             )
 
@@ -400,6 +401,8 @@ class VisionAnnotationService:
                 )
         if self.config.provider == "xiaomi":
             return self._call_xiaomi_vision_multi([p.image_b64 for p in pages], prompt)
+        if self.config.provider == "claude":
+            return self._call_claude_vision_multi([p.image_b64 for p in pages], prompt)
         return self._call_openai_vision_multi([p.image_b64 for p in pages], prompt)
 
     def _understand_pages(
@@ -420,6 +423,8 @@ class VisionAnnotationService:
             )
         if self.config.provider == "xiaomi":
             return self._call_xiaomi_vision_multi([p.image_b64 for p in pages], prompt)
+        if self.config.provider == "claude":
+            return self._call_claude_vision_multi([p.image_b64 for p in pages], prompt)
         return self._call_openai_vision_multi([p.image_b64 for p in pages], prompt)
 
     def complete_text(self, prompt: str, *, thinking: bool = False) -> str:
@@ -430,6 +435,8 @@ class VisionAnnotationService:
         provider = self.config.provider
         if provider == "openai":
             return self._call_openai_text(prompt)
+        if provider == "claude":
+            return self._call_claude_text(prompt)
         if provider == "deepseek":
             return self._call_deepseek_text(prompt, thinking=thinking)
         if provider == "ollama":
@@ -491,7 +498,19 @@ class VisionAnnotationService:
         cfg = self.config.openai
         return self._call_openai_compatible_vision(
             api_key=cfg.api_key,
-            base_url="",
+            base_url=cfg.base_url,
+            model=cfg.model,
+            temperature=cfg.temperature,
+            max_tokens=cfg.max_tokens,
+            images_b64=images_b64,
+            prompt=prompt,
+        )
+
+    def _call_claude_vision_multi(self, images_b64: List[str], prompt: str) -> str:
+        cfg = self.config.claude
+        return self._call_openai_compatible_vision(
+            api_key=cfg.api_key,
+            base_url=cfg.base_url,
             model=cfg.model,
             temperature=cfg.temperature,
             max_tokens=cfg.max_tokens,
@@ -560,7 +579,18 @@ class VisionAnnotationService:
         cfg = self.config.openai
         return self._call_openai_compatible_text(
             api_key=cfg.api_key,
-            base_url="",
+            base_url=cfg.base_url,
+            model=cfg.model,
+            temperature=cfg.temperature,
+            max_tokens=cfg.max_tokens,
+            content=content,
+        )
+
+    def _call_claude_text(self, content: str) -> str:
+        cfg = self.config.claude
+        return self._call_openai_compatible_text(
+            api_key=cfg.api_key,
+            base_url=cfg.base_url,
             model=cfg.model,
             temperature=cfg.temperature,
             max_tokens=cfg.max_tokens,

@@ -27,7 +27,8 @@ const AppState = (() => {
     settings: {
       llm: {
         provider: 'deepseek',
-        openai: { api_key: '', model: 'gpt-4o', temperature: 0.3, max_tokens: 4096 },
+        openai: { api_key: '', model: 'gpt-4o', temperature: 0.3, max_tokens: 4096, base_url: '' },
+        claude: { api_key: '', model: 'claude-sonnet-4-20250514', temperature: 0.3, max_tokens: 4096, base_url: '' },
         ollama: { base_url: 'http://localhost:11434', model: 'llama3:70b', temperature: 0.3 },
         deepseek: { api_key: '', model: 'deepseek-v4-pro', temperature: 0.3, max_tokens: 4096, base_url: 'https://api.deepseek.com' },
         xiaomi: { api_key: '', model: 'mimo-v2.5', temperature: 0.3, max_tokens: 4096, api_mode: 'token_plan', base_url: 'https://token-plan-cn.xiaomimimo.com/v1' },

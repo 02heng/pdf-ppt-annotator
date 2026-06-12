@@ -16,6 +16,16 @@ class OpenAIConfig(BaseModel):
     model: str = "gpt-4o"
     temperature: float = 0.3
     max_tokens: int = 4096
+    base_url: str = ""  # 空则使用 OpenAI 官方地址；可填代理或 Azure 等兼容端点
+
+
+class ClaudeConfig(BaseModel):
+    """Claude 配置（OpenAI 兼容协议，需配置转发/代理 Base URL）"""
+    api_key: str = ""
+    model: str = "claude-sonnet-4-20250514"
+    temperature: float = 0.3
+    max_tokens: int = 4096
+    base_url: str = ""
 
 class OllamaConfig(BaseModel):
     """Ollama 配置"""
@@ -79,8 +89,9 @@ def xiaomi_effective_model(model: str = "") -> str:
 
 class LLMConfig(BaseModel):
     """LLM 配置"""
-    provider: str = "openai"  # openai / ollama / deepseek / xiaomi / agnes
+    provider: str = "openai"  # openai / claude / ollama / deepseek / xiaomi / agnes
     openai: OpenAIConfig = Field(default_factory=OpenAIConfig)
+    claude: ClaudeConfig = Field(default_factory=ClaudeConfig)
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
     deepseek: DeepSeekConfig = Field(default_factory=DeepSeekConfig)
     xiaomi: XiaomiMiMoConfig = Field(default_factory=XiaomiMiMoConfig)

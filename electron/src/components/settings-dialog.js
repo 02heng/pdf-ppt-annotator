@@ -3,6 +3,20 @@
  * LLM 设置 / 批注设置 / 应用设置
  */
 const SettingsDialog = (() => {
+  const PROVIDERS = [
+    { value: 'openai', label: 'OpenAI' },
+    { value: 'claude', label: 'Claude' },
+    { value: 'ollama', label: 'Ollama' },
+    { value: 'deepseek', label: 'DeepSeek' },
+    { value: 'xiaomi', label: '小米 MiMo' },
+    { value: 'agnes', label: 'Agnes' },
+  ];
+
+  function providerOptions(selected) {
+    return PROVIDERS.map((p) =>
+      `<option value="${p.value}"${selected === p.value ? ' selected' : ''}>${p.label}</option>`
+    ).join('');
+  }
 
   function show() {
     const overlay = document.getElementById('settings-overlay');
@@ -13,7 +27,7 @@ const SettingsDialog = (() => {
     overlay.style.display = 'flex';
 
     initTabs(dialog);
-    initProviderToggle(dialog, settings);
+    initProviderSelect(dialog);
 
     dialog.querySelector('#settings-save').addEventListener('click', () => save(dialog, overlay));
     dialog.querySelector('#settings-cancel').addEventListener('click', () => { overlay.style.display = 'none'; });
@@ -36,19 +50,24 @@ const SettingsDialog = (() => {
         <!-- LLM 设置 -->
         <div class="tab-content active" id="tab-llm">
           <div class="form-group">
-            <label class="form-label">LLM 提供商:</label>
-            <div class="segmented" id="provider-segment">
-              <button class="segmented__btn${s.llm.provider === 'openai' ? ' active' : ''}" data-value="openai">OpenAI</button>
-              <button class="segmented__btn${s.llm.provider === 'ollama' ? ' active' : ''}" data-value="ollama">Ollama</button>
-              <button class="segmented__btn${s.llm.provider === 'deepseek' ? ' active' : ''}" data-value="deepseek">DeepSeek</button>
-              <button class="segmented__btn${s.llm.provider === 'xiaomi' ? ' active' : ''}" data-value="xiaomi">小米 MiMo</button>
-              <button class="segmented__btn${s.llm.provider === 'agnes' ? ' active' : ''}" data-value="agnes">Agnes</button>
-            </div>
+            <label class="form-label" for="provider-select">当前 LLM 提供商</label>
+            <select class="form-select" id="provider-select" aria-label="选择 LLM 提供商">
+              ${providerOptions(s.llm.provider)}
+            </select>
+            <p class="form-hint">与 Cursor 选模型一样，同一时间只能启用一个提供商；批注与翻译仅调用当前选中项，其他配置仅保存备用。</p>
           </div>
 
           <div class="form-card provider-card" id="card-openai" ${s.llm.provider !== 'openai' ? 'style="display:none"' : ''}>
             <div class="form-group"><label class="form-label">API Key:</label><input class="form-input" type="password" id="s-openai-key" value="${esc(s.llm.openai.api_key)}" /></div>
             <div class="form-group"><label class="form-label">模型:</label><input class="form-input" id="s-openai-model" value="${esc(s.llm.openai.model)}" /></div>
+            <div class="form-group"><label class="form-label">Base URL:</label><input class="form-input" id="s-openai-url" value="${esc(s.llm.openai.base_url)}" placeholder="留空使用官方 api.openai.com" /></div>
+          </div>
+
+          <div class="form-card provider-card" id="card-claude" ${s.llm.provider !== 'claude' ? 'style="display:none"' : ''}>
+            <p class="form-hint">Claude 需通过 OpenAI 兼容 API 访问，请填写转发服务的 Base URL（如 OpenRouter 等）</p>
+            <div class="form-group"><label class="form-label">API Key:</label><input class="form-input" type="password" id="s-claude-key" value="${esc((s.llm.claude || {}).api_key)}" /></div>
+            <div class="form-group"><label class="form-label">模型:</label><input class="form-input" id="s-claude-model" value="${esc((s.llm.claude || {}).model || 'claude-sonnet-4-20250514')}" /></div>
+            <div class="form-group"><label class="form-label">Base URL:</label><input class="form-input" id="s-claude-url" value="${esc((s.llm.claude || {}).base_url)}" placeholder="https://openrouter.ai/api/v1" /></div>
           </div>
 
           <div class="form-card provider-card" id="card-ollama" ${s.llm.provider !== 'ollama' ? 'style="display:none"' : ''}>
@@ -163,14 +182,24 @@ const SettingsDialog = (() => {
     });
   }
 
-  function initProviderToggle(dialog, settings) {
-    dialog.querySelectorAll('#provider-segment .segmented__btn').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        dialog.querySelectorAll('.provider-card').forEach((c) => c.style.display = 'none');
-        const card = dialog.querySelector(`#card-${btn.dataset.value}`);
-        if (card) card.style.display = '';
-      });
+  function showProviderCard(dialog, provider) {
+    dialog.querySelectorAll('.provider-card').forEach((c) => { c.style.display = 'none'; });
+    const card = dialog.querySelector(`#card-${provider}`);
+    if (card) card.style.display = '';
+  }
+
+  function initProviderSelect(dialog) {
+    const select = dialog.querySelector('#provider-select');
+    showProviderCard(dialog, select.value);
+    select.addEventListener('change', () => {
+      showProviderCard(dialog, select.value);
     });
+  }
+
+  function getProviderValue(dialog) {
+    const select = dialog.querySelector('#provider-select');
+    const value = select ? select.value : '';
+    return PROVIDERS.some((p) => p.value === value) ? value : 'openai';
   }
 
   function getSegmentedValue(dialog, id) {
@@ -181,9 +210,14 @@ const SettingsDialog = (() => {
   function save(dialog, overlay) {
     const s = AppState.state.settings;
 
-    s.llm.provider = getSegmentedValue(dialog, 'provider-segment');
+    s.llm.provider = getProviderValue(dialog);
     s.llm.openai.api_key = dialog.querySelector('#s-openai-key').value;
     s.llm.openai.model = dialog.querySelector('#s-openai-model').value;
+    s.llm.openai.base_url = dialog.querySelector('#s-openai-url').value;
+    if (!s.llm.claude) s.llm.claude = {};
+    s.llm.claude.api_key = dialog.querySelector('#s-claude-key').value;
+    s.llm.claude.model = dialog.querySelector('#s-claude-model').value;
+    s.llm.claude.base_url = dialog.querySelector('#s-claude-url').value;
     s.llm.ollama.base_url = dialog.querySelector('#s-ollama-url').value;
     s.llm.ollama.model = dialog.querySelector('#s-ollama-model').value;
     s.llm.deepseek.api_key = dialog.querySelector('#s-ds-key').value;
@@ -204,9 +238,12 @@ const SettingsDialog = (() => {
     s.app.theme = getSegmentedValue(dialog, 'theme-segment');
     s.app.language = getSegmentedValue(dialog, 'language-segment');
 
+    const activeProvider = PROVIDERS.find((p) => p.value === s.llm.provider);
+    const providerLabel = activeProvider ? activeProvider.label : s.llm.provider;
+
     ApiClient.saveSettings(s).then(() => {
-      StatusBar.setMessage('设置已保存并持久化到文件');
-      Dialogs.showInfo('成功', '设置已保存，API Key已持久化');
+      StatusBar.setMessage(`设置已保存，当前 LLM：${providerLabel}`);
+      Dialogs.showInfo('成功', `设置已保存。批注将使用：${providerLabel}`);
     }).catch((e) => {
       StatusBar.setMessage(`设置保存失败: ${e.message}`);
     });

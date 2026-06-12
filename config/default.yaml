@@ -24,8 +24,15 @@ llm:
     temperature: 0.3
   openai:
     api_key: ''
+    base_url: ''
     max_tokens: 4096
     model: gpt-4o
+    temperature: 0.3
+  claude:
+    api_key: ''
+    base_url: ''
+    max_tokens: 4096
+    model: claude-sonnet-4-20250514
     temperature: 0.3
   agnes:
     api_key: ''

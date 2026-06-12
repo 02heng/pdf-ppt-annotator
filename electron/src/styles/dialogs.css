@@ -127,6 +127,24 @@
   border-color: var(--border-focus);
 }
 
+.form-select {
+  width: 100%;
+  height: var(--btn-height);
+  padding: 0 32px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%235B21B6' d='M2.5 4.5 6 8l3.5-3.5'/%3E%3C/svg%3E") no-repeat right 12px center;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  appearance: none;
+}
+
+.form-select:focus {
+  outline: none;
+  border-color: var(--border-focus);
+}
+
 .form-hint {
   font-size: 11px;
   color: var(--text-muted);

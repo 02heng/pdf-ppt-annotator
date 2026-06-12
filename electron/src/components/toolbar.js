@@ -269,6 +269,14 @@ const Toolbar = (() => {
       Dialogs.showWarning('警告', '请先在设置中配置 OpenAI API Key');
       return false;
     }
+    if (provider === 'claude' && !(settings.llm.claude || {}).api_key) {
+      Dialogs.showWarning('警告', '请先在设置中配置 Claude API Key');
+      return false;
+    }
+    if (provider === 'claude' && !(settings.llm.claude || {}).base_url) {
+      Dialogs.showWarning('警告', '请先在设置中配置 Claude Base URL');
+      return false;
+    }
     if (provider === 'deepseek' && !settings.llm.deepseek.api_key) {
       Dialogs.showWarning('警告', '请先在设置中配置 DeepSeek API Key');
       return false;

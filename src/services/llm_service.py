@@ -25,7 +25,8 @@ class SimpleLLM:
     def call(self, messages: Any, **kwargs) -> str:
         resp = self._client.chat.completions.create(
             model=self.model.replace("openai/", "").replace("ollama/", "")
-                  .replace("deepseek/", "").replace("xiaomi/", ""),
+                  .replace("deepseek/", "").replace("xiaomi/", "")
+                  .replace("claude/", ""),
             messages=messages if isinstance(messages, list) else [{"role": "user", "content": str(messages)}],
             temperature=self._temperature,
             max_tokens=self._max_tokens,
@@ -56,7 +57,7 @@ class LLMService:
         self.provider = config.provider
         self._llm = None
 
-        if self.provider not in ["openai", "ollama", "deepseek", "xiaomi", "agnes"]:
+        if self.provider not in ["openai", "claude", "ollama", "deepseek", "xiaomi", "agnes"]:
             raise ValueError(f"不支持的 LLM 提供商: {self.provider}")
 
     @property
@@ -68,6 +69,8 @@ class LLMService:
     def _create_llm(self):
         if self.provider == "openai":
             return self._create_openai_llm()
+        elif self.provider == "claude":
+            return self._create_claude_llm()
         elif self.provider == "ollama":
             return self._create_ollama_llm()
         elif self.provider == "deepseek":
@@ -85,7 +88,18 @@ class LLMService:
             model=f"openai/{config.model}",
             temperature=config.temperature,
             max_tokens=config.max_tokens,
-            api_key=config.api_key
+            api_key=config.api_key,
+            base_url=config.base_url.rstrip("/") if config.base_url else "",
+        )
+
+    def _create_claude_llm(self):
+        config = self.config.claude
+        return _make_llm(
+            model=f"openai/{config.model}",
+            temperature=config.temperature,
+            max_tokens=config.max_tokens,
+            api_key=config.api_key,
+            base_url=config.base_url.rstrip("/"),
         )
 
     def _create_ollama_llm(self):
@@ -133,7 +147,7 @@ class LLMService:
         )
 
     def switch_provider(self, provider: str) -> None:
-        if provider not in ["openai", "ollama", "deepseek", "xiaomi", "agnes"]:
+        if provider not in ["openai", "claude", "ollama", "deepseek", "xiaomi", "agnes"]:
             raise ValueError(f"不支持的提供商: {provider}")
         self.provider = provider
         self._llm = None
