@@ -1,0 +1,45 @@
+{
+  "name": "slide-annotate",
+  "version": "0.1.0",
+  "description": "PDF/PPTX 教学批注：Electron + 本地 Python",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "start": "node ./node_modules/electron/cli.js .",
+    "pack": "electron-builder --dir",
+    "dist:mac": "electron-builder --mac"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "app.slideannotate.desktop",
+    "productName": "SlideAnnotate",
+    "directories": {
+      "output": "dist"
+    },
+    "mac": {
+      "category": "public.app-category.education",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "files": [
+      "electron/**/*",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "server",
+        "to": "server",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
+  }
+}
