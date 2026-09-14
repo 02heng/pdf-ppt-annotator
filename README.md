@@ -1,5 +1,7 @@
 # SlideAnnotate（Electron + 本地 Python）
 
+源码：<https://github.com/02heng/pdf-ppt-annotator>
+
 面向讲师：上传英文 **PDF** 或 **PPTX**，按页提取正文，调用 **DeepSeek** 生成中文**教学批注**（理解与课堂指导，非全文翻译），预览编辑后可导出：
 
 - **PDF**：每页原文后**追加一页**「教学批注」专页（普通 PDF 页面，非注释弹窗），Edge/Chrome/Adobe 均可稳定阅读；原文页不改。
